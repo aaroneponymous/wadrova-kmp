@@ -159,7 +159,7 @@ private fun SavedLookRow(state: WardrobeUiState, look: SavedLook, onOpen: () -> 
                         .background(WadrovaColors.Studio)
                         .padding(6.dp),
                 ) {
-                    GarmentIllustration(item, Modifier.fillMaxSize())
+                    GarmentVisual(item, Modifier.fillMaxSize())
                 }
             }
         }

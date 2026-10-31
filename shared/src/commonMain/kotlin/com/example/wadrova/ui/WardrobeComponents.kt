@@ -139,7 +139,7 @@ fun GarmentCard(
                 .background(if (selected) WadrovaColors.CobaltSoft else WadrovaColors.Studio)
                 .then(if (selected) Modifier.border(2.dp, WadrovaColors.Cobalt, shape) else Modifier),
         ) {
-            GarmentIllustration(item, Modifier.fillMaxSize().padding(if (selected) 22.dp else 16.dp))
+            GarmentVisual(item, Modifier.fillMaxSize().padding(if (selected) 22.dp else 16.dp))
             if (onToggle != null) {
                 Box(
                     Modifier
@@ -162,10 +162,19 @@ fun GarmentCard(
                         .clip(RoundedCornerShape(topStart = 10.dp))
                         .clickable(role = Role.Button, onClick = onEdit)
                         .semantics { contentDescription = "Edit ${item.name}" }
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("Edit", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Cobalt)
+                    // The pill keeps the label readable over any photo.
+                    Text(
+                        "Edit",
+                        Modifier
+                            .clip(CircleShape)
+                            .background(WadrovaColors.Warm.copy(alpha = 0.92f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = WadrovaColors.Cobalt,
+                    )
                 }
             }
             if (item.isSample) {

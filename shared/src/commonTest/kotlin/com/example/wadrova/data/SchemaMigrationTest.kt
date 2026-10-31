@@ -10,6 +10,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 /** The database exactly as version 1 of the app created it. */
@@ -55,6 +56,42 @@ private object SchemaV1 : SqlSchema<QueryResult.Value<Unit>> {
     ): QueryResult.Value<Unit> = QueryResult.Unit
 }
 
+/** Version 2 added user_garment, before garments had photos. */
+private object SchemaV2 : SqlSchema<QueryResult.Value<Unit>> {
+    override val version = 2L
+
+    override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
+        SchemaV1.create(driver)
+        driver.execute(
+            null,
+            """
+            CREATE TABLE user_garment (
+                id TEXT NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                color TEXT NOT NULL,
+                brand TEXT,
+                material TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                archived_at INTEGER
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(null, "INSERT INTO user_garment VALUES ('user-1', 'Field Jacket', 'OUTERWEAR', 'Olive', 'Acme', NULL, 5, 6, 7)", 0)
+        driver.execute(null, "INSERT INTO saved_look_garment VALUES ('look-1', 'user-1', 2)", 0)
+        return QueryResult.Unit
+    }
+
+    override fun migrate(
+        driver: SqlDriver,
+        oldVersion: Long,
+        newVersion: Long,
+        vararg callbacks: AfterVersion,
+    ): QueryResult.Value<Unit> = QueryResult.Unit
+}
+
 class SchemaMigrationTest {
     private val databaseName = "migration_test"
 
@@ -80,7 +117,7 @@ class SchemaMigrationTest {
         val driver = openTestDatabase(databaseName)
         try {
             val looks = SqlDelightSavedLookRepository(driver, listOf(Garment("shirt", GarmentCategory.TOP)))
-            val garments = SqlDelightGarmentRepository(driver)
+            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore())
 
             val look = looks.getAll().single()
             assertEquals("look-1", look.id)
@@ -91,6 +128,35 @@ class SchemaMigrationTest {
             val added = garments.create(GarmentDetails("Field Jacket", GarmentCategory.OUTERWEAR, "Green"))
             assertEquals(listOf(added), garments.getAll())
             assertEquals(2, looks.create("New", listOf("shirt", added.garment.id)).garmentIds.size)
+        } finally {
+            driver.close()
+        }
+    }
+
+    @Test
+    fun versionTwoDatabaseUpgradesWithGarmentsArchivalAndLookReferencesIntact() = runTest {
+        // The native driver opens lazily, so read from the old database to make sure it's created.
+        val oldDriver = openTestDatabase(databaseName, SchemaV2)
+        oldDriver.executeQuery(null, "SELECT COUNT(*) FROM user_garment", { QueryResult.Value(it.next().value) }, 0)
+        oldDriver.close()
+
+        val driver = openTestDatabase(databaseName)
+        try {
+            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo")))
+            val looks = SqlDelightSavedLookRepository(driver, listOf(Garment("shirt", GarmentCategory.TOP)))
+
+            val garment = garments.getAll().single()
+            assertEquals("user-1", garment.garment.id)
+            assertEquals("Field Jacket", garment.name)
+            assertEquals("Acme", garment.brand)
+            assertTrue(garment.archived)
+            assertEquals(null, garment.photoId)
+            assertEquals(listOf("shirt", "retired-piece", "user-1"), looks.getAll().single().garmentIds)
+
+            val details = GarmentDetails(garment.name, GarmentCategory.OUTERWEAR, garment.color, garment.brand)
+            val withPhoto = garments.update("user-1", details, PhotoChange.Set("photo"))
+            assertEquals("photo", withPhoto.photoId)
+            assertTrue(withPhoto.archived)
         } finally {
             driver.close()
         }

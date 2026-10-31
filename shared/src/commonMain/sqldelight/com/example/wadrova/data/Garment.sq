@@ -8,7 +8,8 @@ CREATE TABLE user_garment (
     material TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    archived_at INTEGER
+    archived_at INTEGER,
+    photo_id TEXT
 );
 
 selectGarments:
@@ -24,11 +25,14 @@ countLooksUsingGarment:
 SELECT COUNT(*) FROM saved_look_garment WHERE garment_id = ?;
 
 insertGarment:
-INSERT INTO user_garment (id, name, category, color, brand, material, created_at, updated_at, archived_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL);
+INSERT INTO user_garment (id, name, category, color, brand, material, created_at, updated_at, archived_at, photo_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?);
 
 updateGarment:
-UPDATE user_garment SET name = ?, category = ?, color = ?, brand = ?, material = ?, updated_at = ? WHERE id = ?;
+UPDATE user_garment SET name = ?, category = ?, color = ?, brand = ?, material = ?, photo_id = ?, updated_at = ? WHERE id = ?;
+
+selectPhotoIds:
+SELECT photo_id FROM user_garment WHERE photo_id IS NOT NULL;
 
 setGarmentArchivedAt:
 UPDATE user_garment SET archived_at = ?, updated_at = ? WHERE id = ?;

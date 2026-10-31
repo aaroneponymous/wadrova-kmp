@@ -86,7 +86,7 @@ fun WardrobeScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wardrob
                                 }
                             }
                             Text(
-                                "Sample pieces are illustrated examples, not your clothes. Your pieces use a generic illustration until photos are available.",
+                                "Sample pieces are illustrated examples, not your clothes. Your pieces use a generic illustration until you add a photo.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = WadrovaColors.Ink2,
                             )

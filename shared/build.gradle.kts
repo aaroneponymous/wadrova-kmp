@@ -78,6 +78,8 @@ kotlin {
         }
         getByName("androidDeviceTest").dependencies {
             implementation(libs.androidx.testRunner)
+            implementation(libs.kotlin.testJunit)
+            implementation(libs.sqldelight.androidDriver)
         }
     }
 }

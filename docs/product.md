@@ -39,3 +39,11 @@ These are agreed rules for upcoming features. Some differ from the current code 
 ## Privacy
 
 Wardrobes and personal images are private user data. Personal images must not leave the device until storage, access control, and deletion have an agreed design.
+
+### Photo storage and backups
+
+- Garment photos come from the system photo picker, so the app requests no photo-library permission.
+- The app stores only re-encoded copies: a 1600 px display image and a 640 px thumbnail. The original file and its metadata, including location, are not kept.
+- Android stores photos in `noBackupFilesDir`, which Auto Backup excludes. iOS stores them in a folder marked `NSURLIsExcludedFromBackupKey`.
+- The database's backup behavior is unchanged, so it can still be backed up. It holds garment names, details, saved looks, and opaque photo ids, but no images.
+- After a restore, a garment can refer to a photo that isn't on the device. The app then shows its illustration, and the user can add the photo again.

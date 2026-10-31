@@ -27,7 +27,11 @@ interface SavedLookRepository {
 class InvalidLookException(message: String) : Exception(message)
 
 /** The repositories over one local database. */
-data class LocalRepositories(val savedLooks: SavedLookRepository, val garments: GarmentRepository)
+data class LocalRepositories(
+    val savedLooks: SavedLookRepository,
+    val garments: GarmentRepository,
+    val photos: GarmentPhotoStore,
+)
 
 @OptIn(ExperimentalUuidApi::class)
 class SqlDelightSavedLookRepository(

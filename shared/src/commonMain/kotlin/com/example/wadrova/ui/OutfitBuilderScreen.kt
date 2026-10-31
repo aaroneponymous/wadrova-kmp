@@ -48,6 +48,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.wadrova.data.PhotoSize
 import com.example.wadrova.domain.GarmentCategory
 
 @Composable
@@ -211,7 +212,7 @@ private fun ColumnScope.MoodTile(item: WardrobeItem) {
             .background(WadrovaColors.Warm)
             .padding(10.dp),
     ) {
-        GarmentIllustration(item, Modifier.fillMaxSize())
+        GarmentVisual(item, Modifier.fillMaxSize(), PhotoSize.DISPLAY)
     }
 }
 
@@ -277,7 +278,7 @@ private fun PieceList(draft: List<WardrobeItem>, onRemove: (WardrobeItem) -> Uni
                         .background(WadrovaColors.Studio)
                         .padding(6.dp),
                 ) {
-                    GarmentIllustration(item, Modifier.fillMaxSize())
+                    GarmentVisual(item, Modifier.fillMaxSize())
                 }
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     Text(

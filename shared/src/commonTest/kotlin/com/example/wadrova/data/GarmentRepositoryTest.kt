@@ -23,7 +23,7 @@ class GarmentRepositoryTest {
 
     private fun open() {
         driver = openTestDatabase(databaseName)
-        garments = SqlDelightGarmentRepository(driver)
+        garments = SqlDelightGarmentRepository(driver, FakePhotoStore())
         looks = SqlDelightSavedLookRepository(driver, samples)
     }
 
@@ -121,7 +121,7 @@ class GarmentRepositoryTest {
 
     @Test
     fun unknownCategoryRowsAreSkippedSafely() = runTest {
-        WadrovaDatabase(driver).garmentQueries.insertGarment("future", "Cape", "CAPE", "Red", null, null, 1, 1)
+        WadrovaDatabase(driver).garmentQueries.insertGarment("future", "Cape", "CAPE", "Red", null, null, 1, 1, null)
         assertEquals(emptyList(), garments.getAll())
         assertFailsWith<InvalidLookException> { looks.create("Monday", listOf("future")) }
     }

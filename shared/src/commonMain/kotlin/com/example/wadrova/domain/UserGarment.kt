@@ -8,4 +8,5 @@ data class UserGarment(
     val brand: String?,
     val material: String?,
     val archived: Boolean,
+    val photoId: String? = null,
 )

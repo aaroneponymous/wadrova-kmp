@@ -1,0 +1,1 @@
+ALTER TABLE user_garment ADD COLUMN photo_id TEXT;

@@ -4,10 +4,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.wadrova.data.LocalRepositories
 import com.example.wadrova.ui.GarmentFormScreen
 import com.example.wadrova.ui.OutfitBuilderScreen
+import com.example.wadrova.ui.LocalPhotoLoader
 import com.example.wadrova.ui.PlatformBackHandler
 import com.example.wadrova.ui.SavedLooksScreen
 import com.example.wadrova.ui.Screen
@@ -19,11 +21,12 @@ import com.example.wadrova.ui.WardrobeViewModel
 fun App(createRepositories: () -> LocalRepositories) {
     val viewModel = viewModel {
         val repositories = createRepositories()
-        WardrobeViewModel(repositories.savedLooks, repositories.garments)
+        WardrobeViewModel(repositories.savedLooks, repositories.garments, repositories.photos)
     }
     val state = viewModel.state
 
     WadrovaTheme {
+        CompositionLocalProvider(LocalPhotoLoader provides viewModel.photoLoader) {
         when (state.screen) {
             Screen.WARDROBE -> WardrobeScreen(state, viewModel::update)
             Screen.BUILDER -> {
@@ -35,9 +38,18 @@ fun App(createRepositories: () -> LocalRepositories) {
                 SavedLooksScreen(state, viewModel::update, viewModel::loadRecords)
             }
             Screen.GARMENT_FORM -> {
-                PlatformBackHandler { viewModel.update { it.closeGarmentForm() } }
-                GarmentFormScreen(state, viewModel::update, viewModel::submitGarmentForm, viewModel::setEditedGarmentArchived)
+                PlatformBackHandler { viewModel.cancelGarmentForm() }
+                GarmentFormScreen(
+                    state,
+                    viewModel::update,
+                    viewModel::submitGarmentForm,
+                    viewModel::setEditedGarmentArchived,
+                    viewModel::cancelGarmentForm,
+                    viewModel::onPhotoPicked,
+                    viewModel::removeFormPhoto,
+                )
             }
+        }
         }
 
         if (state.pendingDiscard != null) {

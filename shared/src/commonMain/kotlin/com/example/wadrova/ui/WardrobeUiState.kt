@@ -6,9 +6,12 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.wadrova.data.GarmentDetails
+import com.example.wadrova.data.GarmentPhotoStore
 import com.example.wadrova.data.GarmentRepository
 import com.example.wadrova.data.InvalidGarmentException
 import com.example.wadrova.data.InvalidLookException
+import com.example.wadrova.data.PhotoChange
+import com.example.wadrova.data.PickedPhoto
 import com.example.wadrova.data.SavedLookRepository
 import com.example.wadrova.domain.GarmentCategory
 import com.example.wadrova.domain.SavedLook
@@ -43,12 +46,24 @@ data class GarmentFormState(
     val brand: String = "",
     val material: String = "",
     val categoryLocked: Boolean = false,
+    val photoId: String? = null,
+    val importingPhoto: Boolean = false,
     val showErrors: Boolean = false,
     val saving: Boolean = false,
     val error: String? = null,
 ) {
     val nameMissing: Boolean get() = name.isBlank()
     val isValid: Boolean get() = !nameMissing && category != null && color != null
+
+    /** The photo imported in this form session and not yet saved, which cancelling must delete. */
+    val stagedPhotoId: String? get() = photoId?.takeIf { it != editing?.photoId }
+
+    val photoChange: PhotoChange
+        get() = when {
+            photoId == editing?.photoId -> PhotoChange.Keep
+            photoId == null -> PhotoChange.Remove
+            else -> PhotoChange.Set(photoId)
+        }
 }
 
 /** A draft-replacing action waiting for confirmation: opening [look], or a new look when it's null. */
@@ -203,12 +218,22 @@ data class WardrobeUiState(
                 brand = item.brand.orEmpty(),
                 material = item.material.orEmpty(),
                 categoryLocked = id in draftIds || savedLooks.any { id in it.garmentIds },
+                photoId = item.photoId,
             ),
         )
     }
 
     fun closeGarmentForm(): WardrobeUiState =
         if (garmentForm?.saving == true) this else copy(screen = Screen.WARDROBE, garmentForm = null)
+
+    fun formPhotoImportStarted(): WardrobeUiState =
+        copy(garmentForm = garmentForm?.copy(importingPhoto = true, error = null))
+
+    fun formPhotoImported(photoId: String): WardrobeUiState =
+        copy(garmentForm = garmentForm?.copy(photoId = photoId, importingPhoto = false))
+
+    fun formPhotoFailed(message: String): WardrobeUiState =
+        copy(garmentForm = garmentForm?.copy(importingPhoto = false, error = message))
 
     fun updateGarmentForm(change: (GarmentFormState) -> GarmentFormState): WardrobeUiState =
         copy(garmentForm = garmentForm?.let { change(it).copy(error = null) })
@@ -241,13 +266,25 @@ data class WardrobeUiState(
 class WardrobeViewModel(
     private val repository: SavedLookRepository,
     private val garmentRepository: GarmentRepository,
+    private val photos: GarmentPhotoStore,
     items: List<WardrobeItem> = sampleWardrobe,
 ) : ViewModel() {
+    val photoLoader = PhotoBitmapLoader(photos)
+
     var state by mutableStateOf(WardrobeUiState(items))
         private set
 
     init {
         loadRecords()
+        // Only here, before any form can hold a staged photo.
+        viewModelScope.launch {
+            try {
+                garmentRepository.removeUnreferencedPhotos()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun update(change: (WardrobeUiState) -> WardrobeUiState) {
@@ -298,7 +335,7 @@ class WardrobeViewModel(
     /** Shows field errors if the form isn't valid. The saving flag blocks repeated submissions. */
     fun submitGarmentForm() {
         val form = state.garmentForm ?: return
-        if (form.saving) return
+        if (form.saving || form.importingPhoto) return
         val category = form.category
         val color = form.color
         if (!form.isValid || category == null || color == null) {
@@ -308,16 +345,76 @@ class WardrobeViewModel(
         val details = GarmentDetails(form.name, category, color, form.brand, form.material)
         runGarmentAction(GARMENT_SAVE_FAILED, GarmentActionResult.SAVED) {
             val editing = form.editing
-            if (editing == null) garmentRepository.create(details) else garmentRepository.update(editing.garment.id, details)
+            if (editing == null) {
+                garmentRepository.create(details, form.photoId)
+            } else {
+                garmentRepository.update(editing.garment.id, details, form.photoChange)
+            }
         }
     }
 
     fun setEditedGarmentArchived(archived: Boolean) {
         val form = state.garmentForm ?: return
         val editing = form.editing ?: return
-        if (form.saving) return
+        if (form.saving || form.importingPhoto) return
+        val staged = form.stagedPhotoId
         runGarmentAction(GARMENT_ARCHIVE_FAILED, GarmentActionResult.ARCHIVE_CHANGED) {
-            garmentRepository.setArchived(editing.garment.id, archived)
+            garmentRepository.setArchived(editing.garment.id, archived).also { staged?.let { deleteQuietly(it) } }
+        }
+    }
+
+    fun onPhotoPicked(result: PhotoPickResult) {
+        when (result) {
+            PhotoPickResult.Cancelled -> Unit
+            PhotoPickResult.Failed -> state = state.formPhotoFailed(PHOTO_FAILED)
+            is PhotoPickResult.Picked -> importPhoto(result.photo)
+        }
+    }
+
+    private fun importPhoto(photo: PickedPhoto) {
+        val form = state.garmentForm ?: return
+        if (form.saving || form.importingPhoto) return
+        state = state.formPhotoImportStarted()
+        viewModelScope.launch {
+            try {
+                val imported = photos.import(photo)
+                val current = state.garmentForm
+                // The form may have been cancelled while the photo was importing.
+                if (current == null || current.editing?.garment?.id != form.editing?.garment?.id) {
+                    deleteQuietly(imported)
+                } else {
+                    current.stagedPhotoId?.let { deleteQuietly(it) }
+                    state = state.formPhotoImported(imported)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                state = state.formPhotoFailed(PHOTO_FAILED)
+            }
+        }
+    }
+
+    /** The saved photo's files stay until the form is saved, so cancelling can bring it back. */
+    fun removeFormPhoto() {
+        val form = state.garmentForm ?: return
+        if (form.saving || form.importingPhoto) return
+        form.stagedPhotoId?.let { staged -> viewModelScope.launch { deleteQuietly(staged) } }
+        state = state.updateGarmentForm { it.copy(photoId = null) }
+    }
+
+    fun cancelGarmentForm() {
+        val form = state.garmentForm ?: return
+        if (form.saving) return
+        form.stagedPhotoId?.let { staged -> viewModelScope.launch { deleteQuietly(staged) } }
+        state = state.closeGarmentForm()
+    }
+
+    private suspend fun deleteQuietly(photoId: String) {
+        try {
+            photos.delete(photoId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         }
     }
 
@@ -349,6 +446,7 @@ class WardrobeViewModel(
     private companion object {
         const val SAVE_FAILED = "Couldn't save this look. Your changes are still here, so you can try again."
         const val GARMENT_SAVE_FAILED = "Couldn't save this piece. Your changes are still here, so you can try again."
+        const val PHOTO_FAILED = "Couldn't use that photo. Try a different one."
         const val GARMENT_ARCHIVE_FAILED = "Couldn't update this piece. Please try again."
     }
 }

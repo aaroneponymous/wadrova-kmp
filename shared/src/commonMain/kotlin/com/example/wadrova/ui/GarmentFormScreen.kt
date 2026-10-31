@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import com.example.wadrova.data.PhotoSize
 
 @Composable
 fun GarmentFormScreen(
@@ -42,8 +43,12 @@ fun GarmentFormScreen(
     update: ((WardrobeUiState) -> WardrobeUiState) -> Unit,
     onSubmit: () -> Unit,
     onSetArchived: (Boolean) -> Unit,
+    onCancel: () -> Unit,
+    onPhotoPicked: (PhotoPickResult) -> Unit,
+    onRemovePhoto: () -> Unit,
 ) {
     val form = state.garmentForm ?: return
+    val pickPhoto = rememberPhotoPicker(onPhotoPicked)
     val edit = { change: (GarmentFormState) -> GarmentFormState -> update { it.updateGarmentForm(change) } }
 
     Column(
@@ -60,6 +65,8 @@ fun GarmentFormScreen(
         Box(Modifier.padding(top = 6.dp, bottom = 16.dp)) {
             EditorialTitle(if (form.editing == null) "A new " else "Edit ", "piece", WadrovaColors.Cobalt)
         }
+
+        PhotoSection(form, onPick = pickPhoto, onRemove = onRemovePhoto)
 
         FormTextField(
             label = "Name",
@@ -107,12 +114,12 @@ fun GarmentFormScreen(
         form.error?.let { FieldError(it) }
 
         Row(Modifier.padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionButton("Cancel", Modifier.weight(1f), enabled = !form.saving) { update { it.closeGarmentForm() } }
+            ActionButton("Cancel", Modifier.weight(1f), enabled = !form.saving) { onCancel() }
             ActionButton(
                 if (form.saving) "Saving…" else "Save piece",
                 Modifier.weight(1f),
                 dark = true,
-                enabled = !form.saving,
+                enabled = !form.saving && !form.importingPhoto,
                 onClick = onSubmit,
             )
         }
@@ -130,6 +137,48 @@ fun GarmentFormScreen(
                     "Archived pieces leave your wardrobe, but saved looks keep them."
                 },
             )
+        }
+    }
+}
+
+@Composable
+private fun PhotoSection(form: GarmentFormState, onPick: () -> Unit, onRemove: () -> Unit) {
+    val hasPhoto = form.photoId != null
+    Row(Modifier.padding(bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(
+            Modifier
+                .size(width = 120.dp, height = 150.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(WadrovaColors.Studio),
+            contentAlignment = Alignment.Center,
+        ) {
+            val photoId = form.photoId
+            if (photoId != null) {
+                PhotoOrFallback(photoId, PhotoSize.DISPLAY, "Photo of this piece", Modifier.fillMaxSize()) {
+                    Hint("Photo unavailable")
+                }
+            } else {
+                Text(
+                    if (form.importingPhoto) "Adding…" else "No photo",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = WadrovaColors.Ink2,
+                )
+            }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionButton(
+                when {
+                    form.importingPhoto -> "Adding photo…"
+                    hasPhoto -> "Replace photo"
+                    else -> "Add photo"
+                },
+                enabled = !form.saving && !form.importingPhoto,
+                onClick = onPick,
+            )
+            if (hasPhoto) {
+                ActionButton("Remove photo", enabled = !form.saving && !form.importingPhoto, onClick = onRemove)
+            }
+            Hint("Stays on this device and is left out of cloud backups.")
         }
     }
 }

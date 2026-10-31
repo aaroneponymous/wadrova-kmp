@@ -16,6 +16,7 @@ data class WardrobeItem(
     val archived: Boolean = false,
     val brand: String? = null,
     val material: String? = null,
+    val photoId: String? = null,
 )
 
 /** The colors offered when adding a piece, with the tints used to draw it. */
@@ -61,6 +62,7 @@ fun UserGarment.toWardrobeItem() = WardrobeItem(
     archived = archived,
     brand = brand,
     material = material,
+    photoId = photoId,
 )
 
 /** Order of the category filters, which differs from the display order within an outfit. */

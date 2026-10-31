@@ -2,7 +2,7 @@
 
 Mobile personal styling app for iOS and Android, built with Kotlin Multiplatform and Compose Multiplatform. See [docs/product.md](docs/product.md) for the product brief.
 
-The app has a Digital Wardrobe and Outfit Builder with illustrated sample pieces and user-created garments. Garments and looks are saved to a local SQLite database. `com.example.wadrova` is a deliberate development placeholder for the application ID.
+The app has a Digital Wardrobe and Outfit Builder with illustrated sample pieces and user-created garments with optional photos. Garments and looks are saved to a local SQLite database, and photos to app-private files excluded from cloud backups. `com.example.wadrova` is a deliberate development placeholder for the application ID.
 
 ## Structure
 
@@ -16,6 +16,7 @@ The app has a Digital Wardrobe and Outfit Builder with illustrated sample pieces
 ./gradlew :androidApp:assembleDebug       # Android debug build
 ./gradlew :shared:testAndroidHostTest     # shared tests on the Android host
 ./gradlew :shared:iosSimulatorArm64Test   # shared tests on the iOS simulator
+./gradlew :shared:connectedAndroidDeviceTest  # shared tests and photo store tests on a running emulator or device
 
 # iOS app build; replace the simulator name with an available one
 xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug \
@@ -24,16 +25,14 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug 
 
 ## Verification status
 
-Persistent garment records, 2026-10-31, on Xcode 27.0 and JDK 21:
+Local garment photos, 2026-10-31, on Xcode 27.0 and JDK 21:
 
 | Check | Result |
 |---|---|
-| Android debug build | Passed; APK produced |
-| Android host tests | Passed |
-| iOS simulator tests | Passed |
-| iOS simulator build and launch | Passed on iPhone 17 (iOS 27.0) |
-| Android garment lifecycle and force-stop relaunch | Passed by driving the running app on Pixel 9 Pro (API 37) |
-| Android upgrade over a version 1 database | Passed by installing over existing data |
-| iOS upgrade over a version 1 database | Passed by installing over existing data |
-| iOS garment lifecycle | Passed through a temporary Compose UI test across separate processes; no real touch input |
-| Physical devices | Not run |
+| Android debug build, host tests, and on-device tests | Passed on Pixel 9 Pro emulator (API 37) |
+| iOS simulator build and tests | Passed on iOS simulator |
+| Android system picker and photo lifecycle | Passed by driving the running app |
+| Android and iOS upgrade over version 2 data | Passed by installing over existing data |
+| iOS photo lifecycle | Passed by a temporary test using real stores and repositories across processes |
+| iOS system picker | Not run; no way to tap the simulator here |
+| Physical devices and real backup and restore | Not run |
