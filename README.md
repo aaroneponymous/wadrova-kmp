@@ -2,7 +2,7 @@
 
 Mobile personal styling app for iOS and Android, built with Kotlin Multiplatform and Compose Multiplatform. See [docs/product.md](docs/product.md) for the product brief.
 
-The app has a Digital Wardrobe and Outfit Builder with illustrated sample pieces and user-created garments with optional photos. Garments and looks are saved to a local SQLite database, and photos to app-private files excluded from cloud backups. `com.example.wadrova` is a deliberate development placeholder for the application ID.
+The app has five primary tabs: Home, Wardrobe, Mirror, Stylist, and Discover. Home, Stylist, and Discover are placeholders, so the app opens on Mirror for now. The app has a Digital Wardrobe and Outfit Builder with illustrated sample pieces and user-created garments with optional photos. Garments and looks are saved to a local SQLite database, and photos to app-private files excluded from cloud backups. `com.example.wadrova` is a deliberate development placeholder for the application ID.
 
 ## Structure
 

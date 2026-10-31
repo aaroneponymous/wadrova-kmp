@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -52,30 +54,34 @@ import com.example.wadrova.domain.GarmentImageKind
 private const val PREVIEW_NOTE = "A visual preview only. It doesn't show how something will fit or what size to choose."
 
 @Composable
-private fun MirrorPage(eyebrow: String, lead: String, accent: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+private fun MirrorPage(eyebrow: String, lead: String, accent: String, onBack: (() -> Unit)?, content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
             .background(WadrovaColors.Ivory)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .verticalScroll(rememberScrollState())
-            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
             .imePadding()
             .padding(horizontal = 20.dp)
             .padding(top = 12.dp, bottom = 24.dp),
     ) {
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(WadrovaColors.Warm)
-                .border(1.dp, WadrovaColors.Line, CircleShape)
-                .clickable(role = Role.Button, onClick = onBack)
-                .semantics { contentDescription = "Back" },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("‹", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
+        if (onBack != null) {
+            Box(
+                Modifier
+                    .padding(bottom = 14.dp)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(WadrovaColors.Warm)
+                    .border(1.dp, WadrovaColors.Line, CircleShape)
+                    .clickable(role = Role.Button, onClick = onBack)
+                    .semantics { contentDescription = "Back" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("‹", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
+            }
         }
-        Eyebrow(eyebrow, Modifier.padding(top = 14.dp))
+        Eyebrow(eyebrow)
         Box(Modifier.padding(top = 6.dp, bottom = 16.dp)) { EditorialTitle(lead, accent, WadrovaColors.Cobalt) }
         content()
     }
@@ -155,8 +161,8 @@ private fun StoredGenerated(imageId: String, description: String) {
 }
 
 @Composable
-fun MirrorHomeScreen(state: MirrorUiState, viewModel: MirrorViewModel, items: List<WardrobeItem>, onBack: () -> Unit) {
-    MirrorPage("Mirror", "Your ", "mirror", onBack) {
+fun MirrorHomeScreen(state: MirrorUiState, viewModel: MirrorViewModel, items: List<WardrobeItem>) {
+    MirrorPage("Mirror", "Your ", "mirror", onBack = null) {
         when {
             state.loading -> Body("Loading…")
             state.loadFailed -> {

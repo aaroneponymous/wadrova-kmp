@@ -24,7 +24,7 @@ import com.example.wadrova.domain.toggleInOutfit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Screen { WARDROBE, BUILDER, SAVED_LOOKS, GARMENT_FORM, MIRROR }
+enum class Screen { WARDROBE, BUILDER, SAVED_LOOKS, GARMENT_FORM }
 
 enum class LooksStatus { LOADING, READY, FAILED }
 
@@ -149,8 +149,6 @@ data class WardrobeUiState(
     fun closePicker(): WardrobeUiState = copy(pickerOpen = false)
 
     fun openSavedLooks(): WardrobeUiState = copy(screen = Screen.SAVED_LOOKS)
-
-    fun openMirror(): WardrobeUiState = copy(screen = Screen.MIRROR)
 
     fun removeUnknownPieces(): WardrobeUiState = copy(draftIds = draftIds - unknownDraftIds.toSet())
 
