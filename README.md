@@ -23,16 +23,19 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug 
   -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
+## Mirror
+
+Mirror's image generation needs the local backend in [mirror_backend](mirror_backend/README.md). Live generation is off until it's enabled there. The app connects to `http://127.0.0.1:8787` by default, which works from a simulator, or from Android after `adb reverse tcp:8787 tcp:8787`. Other setups use Mirror Settings in the app.
+
 ## Verification status
 
-Local garment photos, 2026-10-31, on Xcode 27.0 and JDK 21:
+OpenAI Mirror MVP, 2026-10-31. No request has been sent to OpenAI, so generated image quality is untested.
 
 | Check | Result |
 |---|---|
-| Android debug build, host tests, and on-device tests | Passed on Pixel 9 Pro emulator (API 37) |
-| iOS simulator build and tests | Passed on iOS simulator |
-| Android system picker and photo lifecycle | Passed by driving the running app |
-| Android and iOS upgrade over version 2 data | Passed by installing over existing data |
-| iOS photo lifecycle | Passed by a temporary test using real stores and repositories across processes |
-| iOS system picker | Not run; no way to tap the simulator here |
-| Physical devices and real backup and restore | Not run |
+| Android build, host tests, and emulator tests | Passed |
+| iOS simulator build and tests | Passed |
+| Backend tests, using a fake service and a mock transport | Passed |
+| Android upgrade over a real version 3 database | Passed |
+| All three flows on the Android emulator | Passed against a local stub returning fixture images |
+| Same flows on iOS, and on physical devices | Not run |

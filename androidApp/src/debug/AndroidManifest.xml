@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The local Mirror backend uses plain HTTP. Release builds don't get this. -->
+    <application android:usesCleartextTraffic="true" />
+
+</manifest>

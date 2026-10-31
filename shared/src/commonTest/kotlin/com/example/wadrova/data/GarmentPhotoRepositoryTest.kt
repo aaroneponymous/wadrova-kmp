@@ -22,7 +22,7 @@ class GarmentPhotoRepositoryTest {
     fun setUp() {
         deleteTestDatabase(databaseName)
         driver = openTestDatabase(databaseName)
-        garments = SqlDelightGarmentRepository(driver, photos)
+        garments = SqlDelightGarmentRepository(driver, photos, FakeGeneratedImageStore())
     }
 
     @AfterTest
@@ -36,7 +36,7 @@ class GarmentPhotoRepositoryTest {
         val saved = garments.create(jacket, "old")
         driver.close()
         driver = openTestDatabase(databaseName)
-        garments = SqlDelightGarmentRepository(driver, photos)
+        garments = SqlDelightGarmentRepository(driver, photos, FakeGeneratedImageStore())
         assertEquals("old", garments.getAll().single().photoId)
         assertEquals(saved, garments.getAll().single())
     }

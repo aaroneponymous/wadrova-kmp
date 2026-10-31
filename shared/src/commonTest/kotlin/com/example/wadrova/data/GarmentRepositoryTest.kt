@@ -23,7 +23,7 @@ class GarmentRepositoryTest {
 
     private fun open() {
         driver = openTestDatabase(databaseName)
-        garments = SqlDelightGarmentRepository(driver, FakePhotoStore())
+        garments = SqlDelightGarmentRepository(driver, FakePhotoStore(), FakeGeneratedImageStore())
         looks = SqlDelightSavedLookRepository(driver, samples)
     }
 

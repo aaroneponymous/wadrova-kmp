@@ -41,6 +41,9 @@ interface GarmentRepository {
 
     suspend fun setArchived(id: String, archived: Boolean): UserGarment
 
+    /** Sets or clears the approved extracted image. The photo is untouched, and a previous extraction is deleted. */
+    suspend fun setExtractedImage(id: String, imageId: String?): UserGarment
+
     /** Deletes photo files no garment refers to, such as those left by a crash mid-edit. */
     suspend fun removeUnreferencedPhotos()
 }
@@ -57,6 +60,7 @@ internal fun WadrovaDatabase.userGarmentReferences(): List<Garment> =
 class SqlDelightGarmentRepository(
     driver: SqlDriver,
     private val photos: GarmentPhotoStore,
+    private val generatedImages: GeneratedImageStore,
     private val newId: () -> String = { "user-${Uuid.random()}" },
     private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
@@ -81,6 +85,7 @@ class SqlDelightGarmentRepository(
         val clean = details.validated()
         val now = nowMillis()
         var replacedPhotoId: String? = null
+        var staleExtractionId: String? = null
         val updated = queries.transactionWithResult {
             val existing = requireGarment(id)
             if (existing.garment.category != clean.category && queries.countLooksUsingGarment(id).executeAsOne() > 0) {
@@ -91,12 +96,40 @@ class SqlDelightGarmentRepository(
                 PhotoChange.Remove -> null
                 is PhotoChange.Set -> photo.photoId
             }
-            if (newPhotoId != existing.photoId) replacedPhotoId = existing.photoId
-            queries.updateGarment(clean.name, clean.category.name, clean.color, clean.brand, clean.material, newPhotoId, now, id)
+            // An extraction was made from the old photo, so it can't outlive it.
+            val photoChanged = newPhotoId != existing.photoId
+            if (photoChanged) {
+                replacedPhotoId = existing.photoId
+                staleExtractionId = existing.extractedImageId
+            }
+            val extractedImageId = if (photoChanged) null else existing.extractedImageId
+            queries.updateGarment(clean.name, clean.category.name, clean.color, clean.brand, clean.material, newPhotoId, extractedImageId, now, id)
             requireGarment(id)
         }
         replacedPhotoId?.let { deleteQuietly(it) }
+        staleExtractionId?.let { deleteExtractionQuietly(it) }
         updated
+    }
+
+    override suspend fun setExtractedImage(id: String, imageId: String?): UserGarment = withContext(dispatcher) {
+        val now = nowMillis()
+        var previousId: String? = null
+        val updated = queries.transactionWithResult {
+            previousId = requireGarment(id).extractedImageId
+            queries.setExtractedImage(imageId, now, id)
+            requireGarment(id)
+        }
+        previousId?.takeIf { it != imageId }?.let { deleteExtractionQuietly(it) }
+        updated
+    }
+
+    private suspend fun deleteExtractionQuietly(imageId: String) {
+        try {
+            generatedImages.delete(imageId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     override suspend fun setArchived(id: String, archived: Boolean): UserGarment = withContext(dispatcher) {
@@ -129,7 +162,7 @@ class SqlDelightGarmentRepository(
 
     private fun User_garment.toDomain(): UserGarment? {
         val knownCategory = GarmentCategory.entries.find { it.name == category } ?: return null
-        return UserGarment(Garment(id, knownCategory), name, color, brand, material, archived_at != null, photo_id)
+        return UserGarment(Garment(id, knownCategory), name, color, brand, material, archived_at != null, photo_id, extracted_image_id)
     }
 
     private fun GarmentDetails.validated(): GarmentDetails {

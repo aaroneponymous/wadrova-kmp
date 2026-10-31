@@ -1,0 +1,29 @@
+ALTER TABLE user_garment ADD COLUMN extracted_image_id TEXT;
+
+CREATE TABLE mirror_model (
+    model_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    image_id TEXT NOT NULL,
+    generation_model TEXT NOT NULL,
+    generation_quality TEXT NOT NULL,
+    approved_at INTEGER NOT NULL,
+    PRIMARY KEY (model_id, version)
+);
+
+CREATE TABLE try_on_result (
+    id TEXT NOT NULL PRIMARY KEY,
+    model_id TEXT NOT NULL,
+    model_version INTEGER NOT NULL,
+    garment_id TEXT NOT NULL,
+    source_image_id TEXT NOT NULL,
+    source_image_kind TEXT NOT NULL,
+    generation_model TEXT NOT NULL,
+    generation_quality TEXT NOT NULL,
+    result_image_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE app_setting (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);

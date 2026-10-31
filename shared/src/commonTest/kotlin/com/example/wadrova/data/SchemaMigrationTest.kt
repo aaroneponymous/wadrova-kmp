@@ -92,6 +92,25 @@ private object SchemaV2 : SqlSchema<QueryResult.Value<Unit>> {
     ): QueryResult.Value<Unit> = QueryResult.Unit
 }
 
+/** Version 3 added photos, before extraction and Mirror. */
+private object SchemaV3 : SqlSchema<QueryResult.Value<Unit>> {
+    override val version = 3L
+
+    override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
+        SchemaV2.create(driver)
+        driver.execute(null, "ALTER TABLE user_garment ADD COLUMN photo_id TEXT", 0)
+        driver.execute(null, "UPDATE user_garment SET photo_id = 'photo-1'", 0)
+        return QueryResult.Unit
+    }
+
+    override fun migrate(
+        driver: SqlDriver,
+        oldVersion: Long,
+        newVersion: Long,
+        vararg callbacks: AfterVersion,
+    ): QueryResult.Value<Unit> = QueryResult.Unit
+}
+
 class SchemaMigrationTest {
     private val databaseName = "migration_test"
 
@@ -117,7 +136,7 @@ class SchemaMigrationTest {
         val driver = openTestDatabase(databaseName)
         try {
             val looks = SqlDelightSavedLookRepository(driver, listOf(Garment("shirt", GarmentCategory.TOP)))
-            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore())
+            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(), FakeGeneratedImageStore())
 
             val look = looks.getAll().single()
             assertEquals("look-1", look.id)
@@ -142,7 +161,7 @@ class SchemaMigrationTest {
 
         val driver = openTestDatabase(databaseName)
         try {
-            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo")))
+            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo")), FakeGeneratedImageStore())
             val looks = SqlDelightSavedLookRepository(driver, listOf(Garment("shirt", GarmentCategory.TOP)))
 
             val garment = garments.getAll().single()
@@ -157,6 +176,33 @@ class SchemaMigrationTest {
             val withPhoto = garments.update("user-1", details, PhotoChange.Set("photo"))
             assertEquals("photo", withPhoto.photoId)
             assertTrue(withPhoto.archived)
+        } finally {
+            driver.close()
+        }
+    }
+
+    @Test
+    fun versionThreeDatabaseUpgradesWithPhotosAndLooksIntactAndMirrorTablesReady() = runTest {
+        val oldDriver = openTestDatabase(databaseName, SchemaV3)
+        oldDriver.executeQuery(null, "SELECT COUNT(*) FROM user_garment", { QueryResult.Value(it.next().value) }, 0)
+        oldDriver.close()
+
+        val driver = openTestDatabase(databaseName)
+        try {
+            val images = FakeGeneratedImageStore()
+            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo-1")), images)
+            val looks = SqlDelightSavedLookRepository(driver, listOf(Garment("shirt", GarmentCategory.TOP)))
+            val mirror = SqlDelightMirrorRepository(driver, images, "http://default")
+
+            val garment = garments.getAll().single()
+            assertEquals("photo-1", garment.photoId)
+            assertEquals(null, garment.extractedImageId)
+            assertTrue(garment.archived)
+            assertEquals(listOf("shirt", "retired-piece", "user-1"), looks.getAll().single().garmentIds)
+            assertEquals(null, mirror.approvedModel())
+            assertEquals(emptyList(), mirror.tryOns())
+            assertEquals("http://default", mirror.backendConfig().url)
+            assertEquals("extracted", garments.setExtractedImage("user-1", "extracted").extractedImageId)
         } finally {
             driver.close()
         }

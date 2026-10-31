@@ -24,7 +24,7 @@ import com.example.wadrova.domain.toggleInOutfit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Screen { WARDROBE, BUILDER, SAVED_LOOKS, GARMENT_FORM }
+enum class Screen { WARDROBE, BUILDER, SAVED_LOOKS, GARMENT_FORM, MIRROR }
 
 enum class LooksStatus { LOADING, READY, FAILED }
 
@@ -150,6 +150,8 @@ data class WardrobeUiState(
 
     fun openSavedLooks(): WardrobeUiState = copy(screen = Screen.SAVED_LOOKS)
 
+    fun openMirror(): WardrobeUiState = copy(screen = Screen.MIRROR)
+
     fun removeUnknownPieces(): WardrobeUiState = copy(draftIds = draftIds - unknownDraftIds.toSet())
 
     /** Opens [look] in the builder, asking first if that would discard unsaved changes. */
@@ -254,6 +256,17 @@ data class WardrobeUiState(
         return copy(items = updated, screen = Screen.WARDROBE, garmentForm = null)
     }
 
+    /** Applies a change made while the form stays open, such as an approved extraction. */
+    fun garmentChangedInPlace(garment: UserGarment): WardrobeUiState {
+        val item = garment.toWardrobeItem()
+        return copy(
+            items = items.map { if (it.garment.id == garment.garment.id) item else it },
+            garmentForm = garmentForm?.let { form ->
+                if (form.editing?.garment?.id == garment.garment.id) form.copy(editing = item) else form
+            },
+        )
+    }
+
     /** Archiving takes a piece out of a new draft, but an opened look keeps its reference. */
     fun garmentArchiveChanged(garment: UserGarment): WardrobeUiState {
         val id = garment.garment.id
@@ -269,8 +282,6 @@ class WardrobeViewModel(
     private val photos: GarmentPhotoStore,
     items: List<WardrobeItem> = sampleWardrobe,
 ) : ViewModel() {
-    val photoLoader = PhotoBitmapLoader(photos)
-
     var state by mutableStateOf(WardrobeUiState(items))
         private set
 

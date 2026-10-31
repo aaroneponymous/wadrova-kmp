@@ -38,7 +38,15 @@ These are agreed rules for upcoming features. Some differ from the current code 
 
 ## Privacy
 
-Wardrobes and personal images are private user data. Personal images must not leave the device until storage, access control, and deletion have an agreed design.
+Wardrobes and personal images are private user data. Outside Mirror, personal images never leave the device.
+
+### Mirror and OpenAI
+
+- Mirror sends images to OpenAI through a backend the user runs. The API key stays on that backend and is never in the app.
+- Each send needs explicit consent in a dialog. Selecting a photo or opening a screen sends nothing.
+- A generated image is used only after the user approves it. Previews never claim to show fit or size.
+- Reference photos are deleted from the device once a model is approved or the flow is cancelled.
+- Generated images are stored like garment photos, excluded from cloud backups, and can be removed by the user.
 
 ### Photo storage and backups
 

@@ -9,7 +9,8 @@ CREATE TABLE user_garment (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     archived_at INTEGER,
-    photo_id TEXT
+    photo_id TEXT,
+    extracted_image_id TEXT
 );
 
 selectGarments:
@@ -25,11 +26,17 @@ countLooksUsingGarment:
 SELECT COUNT(*) FROM saved_look_garment WHERE garment_id = ?;
 
 insertGarment:
-INSERT INTO user_garment (id, name, category, color, brand, material, created_at, updated_at, archived_at, photo_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?);
+INSERT INTO user_garment (id, name, category, color, brand, material, created_at, updated_at, archived_at, photo_id, extracted_image_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL);
 
 updateGarment:
-UPDATE user_garment SET name = ?, category = ?, color = ?, brand = ?, material = ?, photo_id = ?, updated_at = ? WHERE id = ?;
+UPDATE user_garment SET name = ?, category = ?, color = ?, brand = ?, material = ?, photo_id = ?, extracted_image_id = ?, updated_at = ? WHERE id = ?;
+
+setExtractedImage:
+UPDATE user_garment SET extracted_image_id = ?, updated_at = ? WHERE id = ?;
+
+selectExtractedImageIds:
+SELECT extracted_image_id FROM user_garment WHERE extracted_image_id IS NOT NULL;
 
 selectPhotoIds:
 SELECT photo_id FROM user_garment WHERE photo_id IS NOT NULL;

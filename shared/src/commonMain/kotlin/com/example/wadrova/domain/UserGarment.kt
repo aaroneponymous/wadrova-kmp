@@ -9,4 +9,6 @@ data class UserGarment(
     val material: String?,
     val archived: Boolean,
     val photoId: String? = null,
+    /** An approved background-removed version, kept alongside the photo rather than replacing it. */
+    val extractedImageId: String? = null,
 )

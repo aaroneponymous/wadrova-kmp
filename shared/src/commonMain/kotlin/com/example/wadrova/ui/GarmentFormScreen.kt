@@ -46,6 +46,8 @@ fun GarmentFormScreen(
     onCancel: () -> Unit,
     onPhotoPicked: (PhotoPickResult) -> Unit,
     onRemovePhoto: () -> Unit,
+    onRemoveBackground: (WardrobeItem) -> Unit,
+    onClearExtracted: (WardrobeItem) -> Unit,
 ) {
     val form = state.garmentForm ?: return
     val pickPhoto = rememberPhotoPicker(onPhotoPicked)
@@ -67,6 +69,7 @@ fun GarmentFormScreen(
         }
 
         PhotoSection(form, onPick = pickPhoto, onRemove = onRemovePhoto)
+        ExtractionSection(form, onRemoveBackground, onClearExtracted)
 
         FormTextField(
             label = "Name",
@@ -178,7 +181,40 @@ private fun PhotoSection(form: GarmentFormState, onPick: () -> Unit, onRemove: (
             if (hasPhoto) {
                 ActionButton("Remove photo", enabled = !form.saving && !form.importingPhoto, onClick = onRemove)
             }
-            Hint("Stays on this device and is left out of cloud backups.")
+            Hint("Stored on this device and left out of cloud backups.")
+        }
+    }
+}
+
+/** Extraction works on the saved photo, so it's offered once a photo change has been saved. */
+@Composable
+private fun ExtractionSection(
+    form: GarmentFormState,
+    onRemoveBackground: (WardrobeItem) -> Unit,
+    onClearExtracted: (WardrobeItem) -> Unit,
+) {
+    val item = form.editing ?: return
+    if (item.photoId == null || form.photoId != item.photoId) return
+    val busy = form.saving || form.importingPhoto
+    Column(Modifier.padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item.extractedImageId?.let { extractedId ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    Modifier
+                        .size(width = 64.dp, height = 80.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(WadrovaColors.Studio),
+                ) {
+                    GeneratedImageOrFallback(extractedId, "Extracted image of this piece", Modifier.fillMaxSize()) {
+                        Hint("Unavailable")
+                    }
+                }
+                Hint("Extracted image in use. Your original photo is kept.")
+            }
+        }
+        ActionButton("Remove Background", enabled = !busy) { onRemoveBackground(item) }
+        if (item.extractedImageId != null) {
+            ActionButton("Use Original Photo", enabled = !busy) { onClearExtracted(item) }
         }
     }
 }

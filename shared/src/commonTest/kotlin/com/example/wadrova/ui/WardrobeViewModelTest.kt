@@ -84,6 +84,9 @@ class WardrobeViewModelTest {
             return details.toGarment(id, archived = false, photoId)
         }
 
+        override suspend fun setExtractedImage(id: String, imageId: String?): UserGarment =
+            garments.first { it.garment.id == id }.copy(extractedImageId = imageId)
+
         override suspend fun removeUnreferencedPhotos() {
             sweeps++
         }

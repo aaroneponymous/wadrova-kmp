@@ -49,6 +49,7 @@ fun WardrobeScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wardrob
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
             WardrobeTopBar(
                 state,
+                onMirror = { update { it.openMirror() } },
                 onSavedLooks = { update { it.openSavedLooks() } },
                 onAdd = { update { it.openAddGarment() } },
             )
@@ -106,12 +107,23 @@ fun WardrobeScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wardrob
 }
 
 @Composable
-private fun WardrobeTopBar(state: WardrobeUiState, onSavedLooks: () -> Unit, onAdd: () -> Unit) {
+private fun WardrobeTopBar(state: WardrobeUiState, onMirror: () -> Unit, onSavedLooks: () -> Unit, onAdd: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Eyebrow("Wardrobe", Modifier.weight(1f))
+        Box(
+            Modifier
+                .height(44.dp)
+                .clip(CircleShape)
+                .background(WadrovaColors.CobaltSoft)
+                .clickable(role = Role.Button, onClick = onMirror)
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Mirror", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Cobalt)
+        }
+        Spacer(Modifier.weight(1f))
         Box(
             Modifier
                 .height(44.dp)

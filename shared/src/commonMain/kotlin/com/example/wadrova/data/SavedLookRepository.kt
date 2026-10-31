@@ -31,6 +31,9 @@ data class LocalRepositories(
     val savedLooks: SavedLookRepository,
     val garments: GarmentRepository,
     val photos: GarmentPhotoStore,
+    val generatedImages: GeneratedImageStore,
+    val mirror: MirrorRepository,
+    val mirrorBackend: MirrorBackend,
 )
 
 @OptIn(ExperimentalUuidApi::class)
