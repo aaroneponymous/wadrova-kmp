@@ -1,31 +1,36 @@
-This is a Kotlin Multiplatform project targeting Android, iOS.
+# Wadrova
 
-* [/iosApp](./iosApp/iosApp) contains an iOS application. Even if you’re sharing your UI with Compose Multiplatform,
-  you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
+Mobile personal styling app for iOS and Android, built with Kotlin Multiplatform and Compose Multiplatform. See [docs/product.md](docs/product.md) for the product brief.
 
-* [/shared](./shared/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./shared/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./shared/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./shared/src/jvmMain/kotlin)
-    folder is the appropriate location.
+The app UI is still the template screen. `com.example.wadrova` is a deliberate development placeholder for the application ID.
 
-### Running the apps
+## Structure
 
-Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and options:
+- `shared/`: shared Kotlin code and Compose UI
+- `androidApp/`: Android entry point
+- `iosApp/`: iOS entry point (open in Xcode)
 
-- Android app: `./gradlew :androidApp:assembleDebug`
-- iOS app: open the [/iosApp](./iosApp) directory in Xcode and run it from there.
+## Commands
 
-### Running tests
+```bash
+./gradlew :androidApp:assembleDebug       # Android debug build
+./gradlew :shared:testAndroidHostTest     # shared tests on the Android host
+./gradlew :shared:iosSimulatorArm64Test   # shared tests on the iOS simulator
 
-Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
+# iOS app build; replace the simulator name with an available one
+xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17' build
+```
 
-- Android tests: `./gradlew :shared:testAndroidHostTest`
-- iOS tests: `./gradlew :shared:iosSimulatorArm64Test`
+## Verification status
 
----
+Untouched template, 2026-10-31, on Xcode 27.0 and JDK 21:
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+| Check | Result |
+|---|---|
+| Android debug build | Passed; APK produced |
+| Android host tests | Passed |
+| iOS simulator tests | Passed |
+| iOS simulator build and launch | Passed on iPhone 17 (iOS 27.0) |
+| Android launch on a device or emulator | Not run |
+| iOS physical device | Not run; `TEAM_ID` is unset |
