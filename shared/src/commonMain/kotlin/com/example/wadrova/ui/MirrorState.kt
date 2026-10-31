@@ -439,8 +439,9 @@ class MirrorViewModel(
 
     /** Saves the settings and checks the backend's configuration. This never contacts OpenAI. */
     fun saveConfigAndCheck() {
-        val config = state.config
-        state = state.copy(checkingConnection = true, connectionMessage = null)
+        // A pasted address or token often carries stray whitespace, which isn't valid in a header.
+        val config = state.config.let { BackendConfig(it.url.trim(), it.token.trim()) }
+        state = state.copy(config = config, checkingConnection = true, connectionMessage = null)
         viewModelScope.launch {
             val message = try {
                 repository.saveBackendConfig(config)

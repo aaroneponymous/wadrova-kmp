@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -40,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -485,6 +487,7 @@ fun MirrorSettingsScreen(state: MirrorUiState, viewModel: MirrorViewModel) {
             modifier = Modifier.padding(top = 16.dp).fillMaxWidth(),
             label = { Text("Backend address") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Uri),
             textStyle = MaterialTheme.typography.bodyMedium,
             shape = RoundedCornerShape(14.dp),
         )
@@ -494,6 +497,7 @@ fun MirrorSettingsScreen(state: MirrorUiState, viewModel: MirrorViewModel) {
             modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
             label = { Text("Development token") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
             textStyle = MaterialTheme.typography.bodyMedium,
             shape = RoundedCornerShape(14.dp),
         )

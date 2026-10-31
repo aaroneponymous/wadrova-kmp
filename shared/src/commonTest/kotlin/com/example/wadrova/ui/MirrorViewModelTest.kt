@@ -522,4 +522,13 @@ class MirrorViewModelTest {
         assertEquals(listOf("status"), backend.calls)
         assertEquals("Connected, but live generation is off on the backend.", viewModel.state.connectionMessage)
     }
+
+    @Test
+    fun checkingTheConnectionTrimsPastedSettings() {
+        val viewModel = viewModel()
+        viewModel.updateConfig(BackendConfig(" http://192.168.1.5:8787 ", "pasted-token\n"))
+        viewModel.saveConfigAndCheck()
+        assertEquals(BackendConfig("http://192.168.1.5:8787", "pasted-token"), viewModel.state.config)
+        assertEquals(BackendConfig("http://192.168.1.5:8787", "pasted-token"), repository.saved)
+    }
 }
