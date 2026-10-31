@@ -1,6 +1,7 @@
 package com.example.wadrova.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,10 +11,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -30,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -39,13 +43,14 @@ fun WardrobeScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wardrob
     BoxWithConstraints(Modifier.fillMaxSize().background(WadrovaColors.Ivory)) {
         // On short screens, such as landscape phones, the grid needs the header's space.
         val showHeader = maxHeight >= 520.dp
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
+            WardrobeTopBar(state) { update { it.openSavedLooks() } }
             if (showHeader) WardrobeHeader(state.items) else Spacer(Modifier.height(8.dp))
             CategoryChips(state.items, state.wardrobeFilter) { filter -> update { it.filterWardrobe(filter) } }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 120.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 140.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
@@ -76,11 +81,33 @@ fun WardrobeScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wardrob
 }
 
 @Composable
+private fun WardrobeTopBar(state: WardrobeUiState, onSavedLooks: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Eyebrow("Digital Wardrobe", Modifier.weight(1f))
+        Box(
+            Modifier
+                .height(44.dp)
+                .clip(CircleShape)
+                .background(WadrovaColors.Warm)
+                .border(1.dp, WadrovaColors.Line, CircleShape)
+                .clickable(role = Role.Button, onClick = onSavedLooks)
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val count = if (state.looksStatus == LooksStatus.READY) " · ${state.savedLooks.size}" else ""
+            Text("Saved looks$count", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Charcoal)
+        }
+    }
+}
+
+@Composable
 private fun WardrobeHeader(items: List<WardrobeItem>) {
     val categories = items.map { it.garment.category }.distinct().size
-    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 14.dp)) {
-        Eyebrow("Digital Wardrobe")
-        Box(Modifier.padding(top = 8.dp)) { EditorialTitle("Your ", "collection") }
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 14.dp)) {
+        EditorialTitle("Your ", "collection")
         HorizontalDivider(Modifier.padding(top = 10.dp), color = WadrovaColors.Charcoal)
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(

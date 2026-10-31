@@ -34,12 +34,19 @@ fun sameGarmentSet(a: List<String>, b: List<String>): Boolean = a.sorted() == b.
 fun isDraftDirty(baselineIds: List<String>, currentIds: List<String>): Boolean =
     !sameGarmentSet(baselineIds, currentIds)
 
-/** A look can be saved only if it has at least one piece and every piece exists in the wardrobe. */
+/** A look can be saved only if it has at least one piece, each once, and every piece exists in the wardrobe. */
 fun canSaveLook(garmentIds: List<String>, garments: List<Garment>): Boolean {
     val known = garments.map { it.id }.toSet()
-    return garmentIds.isNotEmpty() && garmentIds.all { it in known }
+    return garmentIds.isNotEmpty() && garmentIds.distinct().size == garmentIds.size && garmentIds.all { it in known }
 }
 
 /** "Cobalt Easy" becomes "Cobalt Easy — Variation", without stacking the suffix. */
 fun variationName(name: String): String =
     "${name.ifEmpty { "Untitled look" }.replace(VARIATION_SUFFIX, "")} — Variation"
+
+/** The first free default name for a variation of [name]: "X — Variation", then "X — Variation 2", and so on. */
+fun nextVariationName(name: String, existingNames: Collection<String>): String {
+    val first = variationName(name)
+    if (first !in existingNames) return first
+    return generateSequence(2) { it + 1 }.map { "$first $it" }.first { it !in existingNames }
+}

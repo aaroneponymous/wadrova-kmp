@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -32,11 +34,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -47,8 +51,13 @@ import androidx.compose.ui.unit.dp
 import com.example.wadrova.domain.GarmentCategory
 
 @Composable
-fun OutfitBuilderScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> WardrobeUiState) -> Unit) {
+fun OutfitBuilderScreen(
+    state: WardrobeUiState,
+    update: ((WardrobeUiState) -> WardrobeUiState) -> Unit,
+    onSave: () -> Unit,
+) {
     val draft = state.draftItems
+    val opened = state.openedLook
 
     Column(
         Modifier
@@ -71,9 +80,20 @@ fun OutfitBuilderScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wa
         ) {
             Text("‹", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
         }
-        Eyebrow("Outfit Builder", Modifier.padding(top = 14.dp))
+        Eyebrow(
+            when {
+                opened == null -> "Outfit Builder"
+                state.isDirty -> "Editing look · unsaved changes"
+                else -> "Saved look"
+            },
+            Modifier.padding(top = 14.dp),
+        )
         Box(Modifier.padding(top = 6.dp, bottom = 16.dp)) {
-            EditorialTitle("Create ", "a look", WadrovaColors.Cobalt)
+            if (opened == null) {
+                EditorialTitle("Create ", "a look", WadrovaColors.Cobalt)
+            } else {
+                Text(opened.name, style = MaterialTheme.typography.displaySmall, color = WadrovaColors.Charcoal)
+            }
         }
 
         if (draft.isEmpty()) {
@@ -81,11 +101,27 @@ fun OutfitBuilderScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wa
         } else {
             Moodboard(draft)
             ActionButton("+ Add pieces", Modifier.padding(top = 12.dp)) { update { it.openPicker() } }
+            if (opened == null || state.isDirty) {
+                ActionButton(
+                    "Save look",
+                    Modifier.padding(top = 8.dp),
+                    dark = true,
+                    enabled = state.canSaveDraft,
+                ) { update { it.openSaveSheet() } }
+            }
+        }
+        if (state.unknownDraftIds.isNotEmpty()) {
+            MissingPiecesNotice(state.unknownDraftIds.size, onRemove = { update { it.removeUnknownPieces() } })
+        }
+        if (draft.isNotEmpty()) {
             PieceList(draft, onRemove = { item -> update { it.toggle(item) } })
+        }
+        if (opened != null) {
+            ActionButton("Start a new look", Modifier.padding(top = 16.dp)) { update { it.requestNewLook() } }
         }
 
         Text(
-            "This look lasts while the app is open. Saving isn't available yet.",
+            "Saved looks stay on this device. Your draft lasts while the app is open.",
             Modifier.padding(top = 20.dp),
             style = MaterialTheme.typography.bodySmall,
             color = WadrovaColors.Ink2,
@@ -94,6 +130,26 @@ fun OutfitBuilderScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wa
 
     if (state.pickerOpen) {
         GarmentPickerSheet(state, update)
+    }
+    state.saveSheet?.let { sheet -> SaveLookSheet(state, sheet, update, onSave) }
+}
+
+@Composable
+private fun MissingPiecesNotice(count: Int, onRemove: () -> Unit) {
+    Column(
+        Modifier
+            .padding(top = 16.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(WadrovaColors.Studio)
+            .padding(16.dp),
+    ) {
+        Text(
+            if (count == 1) "1 piece is no longer in your wardrobe." else "$count pieces are no longer in your wardrobe.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = WadrovaColors.Charcoal,
+        )
+        ActionButton("Remove from this look", Modifier.padding(top = 12.dp), onClick = onRemove)
     }
 }
 
@@ -255,14 +311,21 @@ private fun PieceList(draft: List<WardrobeItem>, onRemove: (WardrobeItem) -> Uni
 }
 
 @Composable
-private fun ActionButton(label: String, modifier: Modifier = Modifier, dark: Boolean = false, onClick: () -> Unit) {
+internal fun ActionButton(
+    label: String,
+    modifier: Modifier = Modifier,
+    dark: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     Box(
         modifier
             .fillMaxWidth()
             .height(48.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(if (dark) WadrovaColors.Charcoal else WadrovaColors.CobaltSoft)
-            .clickable(role = Role.Button, onClick = onClick),
+            .alpha(if (enabled) 1f else 0.4f)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -314,5 +377,92 @@ private fun GarmentPickerSheet(state: WardrobeUiState, update: ((WardrobeUiState
                 update { it.closePicker() }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SaveLookSheet(
+    state: WardrobeUiState,
+    sheet: SaveSheetState,
+    update: ((WardrobeUiState) -> WardrobeUiState) -> Unit,
+    onSave: () -> Unit,
+) {
+    val opened = state.openedLook
+
+    ModalBottomSheet(
+        onDismissRequest = { update { it.closeSaveSheet() } },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { !sheet.saving }),
+        containerColor = WadrovaColors.Warm,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+        ) {
+            Text("Save this look", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
+            if (opened != null) {
+                Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SaveModeChip("Save as new", sheet.mode == SaveMode.NEW, Modifier.weight(1f)) {
+                        update { it.setSaveMode(SaveMode.NEW) }
+                    }
+                    SaveModeChip("Update existing", sheet.mode == SaveMode.UPDATE, Modifier.weight(1f)) {
+                        update { it.setSaveMode(SaveMode.UPDATE) }
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = sheet.name,
+                onValueChange = { name -> update { it.setSaveName(name) } },
+                modifier = Modifier.padding(top = 16.dp).fillMaxWidth(),
+                label = { Text("Name") },
+                placeholder = { Text("e.g. Quiet Monday") },
+                singleLine = true,
+                enabled = !sheet.saving,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                shape = RoundedCornerShape(14.dp),
+            )
+            sheet.error?.let { error ->
+                Text(
+                    error,
+                    Modifier.padding(top = 12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            ActionButton(
+                when {
+                    sheet.saving -> "Saving…"
+                    sheet.mode == SaveMode.UPDATE -> "Update look"
+                    else -> "Save look"
+                },
+                Modifier.padding(top = 16.dp),
+                dark = true,
+                enabled = state.canSubmitSave,
+                onClick = onSave,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SaveModeChip(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .height(44.dp)
+            .clip(CircleShape)
+            .background(if (selected) WadrovaColors.Charcoal else WadrovaColors.Warm)
+            .border(1.dp, if (selected) WadrovaColors.Charcoal else WadrovaColors.Line, CircleShape)
+            .selectable(selected, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) WadrovaColors.Warm else WadrovaColors.Charcoal,
+        )
     }
 }

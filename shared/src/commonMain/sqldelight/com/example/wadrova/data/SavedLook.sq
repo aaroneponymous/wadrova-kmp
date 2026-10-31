@@ -1,0 +1,35 @@
+CREATE TABLE saved_look (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+-- garment_id refers to the app's garment catalog, which is not stored in this database.
+CREATE TABLE saved_look_garment (
+    look_id TEXT NOT NULL REFERENCES saved_look(id),
+    garment_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (look_id, garment_id)
+);
+
+selectLooks:
+SELECT * FROM saved_look ORDER BY updated_at DESC, id;
+
+selectLook:
+SELECT * FROM saved_look WHERE id = ?;
+
+selectLookGarments:
+SELECT look_id, garment_id FROM saved_look_garment ORDER BY look_id, position;
+
+insertLook:
+INSERT INTO saved_look (id, name, created_at, updated_at) VALUES (?, ?, ?, ?);
+
+updateLook:
+UPDATE saved_look SET name = ?, updated_at = ? WHERE id = ?;
+
+insertLookGarment:
+INSERT INTO saved_look_garment (look_id, garment_id, position) VALUES (?, ?, ?);
+
+deleteLookGarments:
+DELETE FROM saved_look_garment WHERE look_id = ?;

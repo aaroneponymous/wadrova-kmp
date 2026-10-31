@@ -141,4 +141,22 @@ class OutfitCompositionTest {
     fun variationNameFallsBackForEmptyName() {
         assertEquals("Untitled look — Variation", variationName(""))
     }
+
+    @Test
+    fun lookWithDuplicatePieceCannotBeSaved() {
+        assertFalse(canSaveLook(listOf("shirt", "shirt"), wardrobe))
+    }
+
+    @Test
+    fun nextVariationNameUsesPlainSuffixWhenFree() {
+        assertEquals("Cobalt — Variation", nextVariationName("Cobalt", listOf("Cobalt")))
+    }
+
+    @Test
+    fun nextVariationNameCountsUpWithoutRepeatingSuffix() {
+        val existing = listOf("Cobalt", "Cobalt — Variation", "Cobalt — Variation 2")
+        assertEquals("Cobalt — Variation 3", nextVariationName("Cobalt", existing))
+        assertEquals("Cobalt — Variation 3", nextVariationName("Cobalt — Variation", existing))
+        assertEquals("Cobalt — Variation 3", nextVariationName("Cobalt — Variation 2", existing))
+    }
 }

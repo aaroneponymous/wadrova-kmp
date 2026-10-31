@@ -5,6 +5,15 @@ plugins {
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.sqldelight)
+}
+
+sqldelight {
+    databases {
+        create("WadrovaDatabase") {
+            packageName.set("com.example.wadrova.data")
+        }
+    }
 }
 
 kotlin {
@@ -39,10 +48,15 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
+            implementation(libs.sqldelight.androidDriver)
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
         }
+        iosMain.dependencies {
+            implementation(libs.sqldelight.nativeDriver)
+        }
         commonMain.dependencies {
+            implementation(libs.kotlinx.coroutines.core)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
@@ -54,6 +68,13 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+        }
+        getByName("androidHostTest").dependencies {
+            implementation(libs.sqldelight.sqliteDriver)
+        }
+        iosTest.dependencies {
+            implementation(libs.sqldelight.nativeDriver)
         }
         getByName("androidDeviceTest").dependencies {
             implementation(libs.androidx.testRunner)
