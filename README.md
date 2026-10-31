@@ -2,7 +2,7 @@
 
 Mobile personal styling app for iOS and Android, built with Kotlin Multiplatform and Compose Multiplatform. See [docs/product.md](docs/product.md) for the product brief.
 
-The app UI is still the template screen. `com.example.wadrova` is a deliberate development placeholder for the application ID.
+The app UI is still the template screen; the outfit composition rules in `shared` aren't connected to it yet. `com.example.wadrova` is a deliberate development placeholder for the application ID.
 
 ## Structure
 
@@ -24,7 +24,7 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug 
 
 ## Verification status
 
-Untouched template, 2026-10-31, on Xcode 27.0 and JDK 21:
+Template plus outfit composition rules, 2026-10-31, on Xcode 27.0 and JDK 21:
 
 | Check | Result |
 |---|---|
