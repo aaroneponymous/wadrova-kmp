@@ -1,0 +1,34 @@
+-- User-created garments. Sample garments stay in code and are never stored here.
+CREATE TABLE user_garment (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    color TEXT NOT NULL,
+    brand TEXT,
+    material TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    archived_at INTEGER
+);
+
+selectGarments:
+SELECT * FROM user_garment ORDER BY created_at DESC, id;
+
+selectGarment:
+SELECT * FROM user_garment WHERE id = ?;
+
+selectGarmentCategories:
+SELECT id, category FROM user_garment;
+
+countLooksUsingGarment:
+SELECT COUNT(*) FROM saved_look_garment WHERE garment_id = ?;
+
+insertGarment:
+INSERT INTO user_garment (id, name, category, color, brand, material, created_at, updated_at, archived_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL);
+
+updateGarment:
+UPDATE user_garment SET name = ?, category = ?, color = ?, brand = ?, material = ?, updated_at = ? WHERE id = ?;
+
+setGarmentArchivedAt:
+UPDATE user_garment SET archived_at = ?, updated_at = ? WHERE id = ?;

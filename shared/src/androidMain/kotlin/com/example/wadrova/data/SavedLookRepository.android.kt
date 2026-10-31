@@ -4,8 +4,10 @@ import android.content.Context
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import com.example.wadrova.ui.sampleWardrobe
 
-fun createSavedLookRepository(context: Context): SavedLookRepository =
-    SqlDelightSavedLookRepository(
-        AndroidSqliteDriver(WadrovaDatabase.Schema, context.applicationContext, "wadrova.db"),
-        sampleWardrobe.map { it.garment },
+fun createLocalRepositories(context: Context): LocalRepositories {
+    val driver = AndroidSqliteDriver(WadrovaDatabase.Schema, context.applicationContext, "wadrova.db")
+    return LocalRepositories(
+        SqlDelightSavedLookRepository(driver, sampleWardrobe.map { it.garment }),
+        SqlDelightGarmentRepository(driver),
     )
+}

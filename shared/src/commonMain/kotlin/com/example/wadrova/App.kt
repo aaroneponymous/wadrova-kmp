@@ -5,7 +5,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.wadrova.data.SavedLookRepository
+import com.example.wadrova.data.LocalRepositories
+import com.example.wadrova.ui.GarmentFormScreen
 import com.example.wadrova.ui.OutfitBuilderScreen
 import com.example.wadrova.ui.PlatformBackHandler
 import com.example.wadrova.ui.SavedLooksScreen
@@ -15,8 +16,11 @@ import com.example.wadrova.ui.WardrobeScreen
 import com.example.wadrova.ui.WardrobeViewModel
 
 @Composable
-fun App(createRepository: () -> SavedLookRepository) {
-    val viewModel = viewModel { WardrobeViewModel(createRepository()) }
+fun App(createRepositories: () -> LocalRepositories) {
+    val viewModel = viewModel {
+        val repositories = createRepositories()
+        WardrobeViewModel(repositories.savedLooks, repositories.garments)
+    }
     val state = viewModel.state
 
     WadrovaTheme {
@@ -28,7 +32,11 @@ fun App(createRepository: () -> SavedLookRepository) {
             }
             Screen.SAVED_LOOKS -> {
                 PlatformBackHandler { viewModel.update { it.openWardrobe() } }
-                SavedLooksScreen(state, viewModel::update, viewModel::loadLooks)
+                SavedLooksScreen(state, viewModel::update, viewModel::loadRecords)
+            }
+            Screen.GARMENT_FORM -> {
+                PlatformBackHandler { viewModel.update { it.closeGarmentForm() } }
+                GarmentFormScreen(state, viewModel::update, viewModel::submitGarmentForm, viewModel::setEditedGarmentArchived)
             }
         }
 

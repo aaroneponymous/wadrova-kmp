@@ -82,7 +82,7 @@ fun SavedLooksScreen(
                     HorizontalDivider(color = WadrovaColors.Line)
                 }
                 Text(
-                    "Saved on this device · built from sample pieces.",
+                    "Saved on this device.",
                     Modifier.padding(top = 20.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = WadrovaColors.Ink2,
@@ -124,6 +124,7 @@ private fun Message(title: String, detail: String?) {
 private fun SavedLookRow(state: WardrobeUiState, look: SavedLook, onOpen: () -> Unit) {
     val items = state.itemsFor(look)
     val missing = state.missingPieceCount(look)
+    val archived = state.archivedPieceCount(look)
     val pieces = look.garmentIds.size
 
     Column(
@@ -142,6 +143,7 @@ private fun SavedLookRow(state: WardrobeUiState, look: SavedLook, onOpen: () -> 
         Text(
             buildString {
                 append("$pieces ${if (pieces == 1) "piece" else "pieces"}")
+                if (archived > 0) append(" · $archived archived")
                 if (missing > 0) append(" · $missing no longer in your wardrobe")
             },
             Modifier.padding(top = 2.dp),

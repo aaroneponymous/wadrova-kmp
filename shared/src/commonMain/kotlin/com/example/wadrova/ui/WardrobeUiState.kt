@@ -5,10 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.wadrova.data.GarmentDetails
+import com.example.wadrova.data.GarmentRepository
+import com.example.wadrova.data.InvalidGarmentException
 import com.example.wadrova.data.InvalidLookException
 import com.example.wadrova.data.SavedLookRepository
 import com.example.wadrova.domain.GarmentCategory
 import com.example.wadrova.domain.SavedLook
+import com.example.wadrova.domain.UserGarment
 import com.example.wadrova.domain.canSaveLook
 import com.example.wadrova.domain.isDraftDirty
 import com.example.wadrova.domain.nextVariationName
@@ -17,7 +21,7 @@ import com.example.wadrova.domain.toggleInOutfit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Screen { WARDROBE, BUILDER, SAVED_LOOKS }
+enum class Screen { WARDROBE, BUILDER, SAVED_LOOKS, GARMENT_FORM }
 
 enum class LooksStatus { LOADING, READY, FAILED }
 
@@ -29,6 +33,23 @@ data class SaveSheetState(
     val saving: Boolean = false,
     val error: String? = null,
 )
+
+/** The Add/Edit Garment form. [showErrors] turns on field validation after a submit attempt. */
+data class GarmentFormState(
+    val editing: WardrobeItem? = null,
+    val name: String = "",
+    val category: GarmentCategory? = null,
+    val color: String? = null,
+    val brand: String = "",
+    val material: String = "",
+    val categoryLocked: Boolean = false,
+    val showErrors: Boolean = false,
+    val saving: Boolean = false,
+    val error: String? = null,
+) {
+    val nameMissing: Boolean get() = name.isBlank()
+    val isValid: Boolean get() = !nameMissing && category != null && color != null
+}
 
 /** A draft-replacing action waiting for confirmation: opening [look], or a new look when it's null. */
 data class PendingDiscard(val look: SavedLook?)
@@ -46,8 +67,17 @@ data class WardrobeUiState(
     val openedLook: SavedLook? = null,
     val saveSheet: SaveSheetState? = null,
     val pendingDiscard: PendingDiscard? = null,
+    val showArchived: Boolean = false,
+    val garmentForm: GarmentFormState? = null,
 ) {
     private val garments = items.map { it.garment }
+
+    /** Pieces offered for new compositions. Archived pieces stay in [items] so saved looks can resolve them. */
+    val availableItems: List<WardrobeItem>
+        get() = items.filterNot { it.archived }
+
+    val archivedItems: List<WardrobeItem>
+        get() = items.filter { it.archived }
 
     /** The outfit draft in the established display order. */
     val draftItems: List<WardrobeItem>
@@ -70,11 +100,13 @@ data class WardrobeUiState(
     fun itemsFor(look: SavedLook): List<WardrobeItem> =
         pickGarments(garments, look.garmentIds).map { garment -> items.first { it.garment == garment } }
 
+    fun archivedPieceCount(look: SavedLook): Int = itemsFor(look).count { it.archived }
+
     fun missingPieceCount(look: SavedLook): Int =
         look.garmentIds.count { id -> garments.none { it.id == id } }
 
     fun itemsIn(filter: GarmentCategory?): List<WardrobeItem> =
-        if (filter == null) items else items.filter { it.garment.category == filter }
+        if (filter == null) availableItems else availableItems.filter { it.garment.category == filter }
 
     fun isInDraft(item: WardrobeItem): Boolean = item.garment.id in draftIds
 
@@ -150,29 +182,86 @@ data class WardrobeUiState(
     )
 
     fun saveFailed(message: String): WardrobeUiState = copy(saveSheet = saveSheet?.copy(saving = false, error = message))
+
+    fun withUserGarments(garments: List<UserGarment>): WardrobeUiState =
+        copy(items = garments.map { it.toWardrobeItem() } + items.filter { it.isSample })
+
+    fun showArchivedPieces(show: Boolean): WardrobeUiState = copy(showArchived = show)
+
+    fun openAddGarment(): WardrobeUiState = copy(screen = Screen.GARMENT_FORM, garmentForm = GarmentFormState())
+
+    /** A piece in a look can't change category, because that could break the look's composition. */
+    fun openEditGarment(item: WardrobeItem): WardrobeUiState {
+        val id = item.garment.id
+        return copy(
+            screen = Screen.GARMENT_FORM,
+            garmentForm = GarmentFormState(
+                editing = item,
+                name = item.name,
+                category = item.garment.category,
+                color = item.colorName,
+                brand = item.brand.orEmpty(),
+                material = item.material.orEmpty(),
+                categoryLocked = id in draftIds || savedLooks.any { id in it.garmentIds },
+            ),
+        )
+    }
+
+    fun closeGarmentForm(): WardrobeUiState =
+        if (garmentForm?.saving == true) this else copy(screen = Screen.WARDROBE, garmentForm = null)
+
+    fun updateGarmentForm(change: (GarmentFormState) -> GarmentFormState): WardrobeUiState =
+        copy(garmentForm = garmentForm?.let { change(it).copy(error = null) })
+
+    fun garmentFormStarted(): WardrobeUiState = copy(garmentForm = garmentForm?.copy(saving = true, error = null))
+
+    fun garmentFormFailed(message: String): WardrobeUiState =
+        copy(garmentForm = garmentForm?.copy(saving = false, error = message))
+
+    /** Applies a created or edited piece and returns to the wardrobe. */
+    fun garmentSaved(garment: UserGarment): WardrobeUiState {
+        val item = garment.toWardrobeItem()
+        val updated = if (items.any { it.garment.id == garment.garment.id }) {
+            items.map { if (it.garment.id == garment.garment.id) item else it }
+        } else {
+            listOf(item) + items
+        }
+        return copy(items = updated, screen = Screen.WARDROBE, garmentForm = null)
+    }
+
+    /** Archiving takes a piece out of a new draft, but an opened look keeps its reference. */
+    fun garmentArchiveChanged(garment: UserGarment): WardrobeUiState {
+        val id = garment.garment.id
+        val keepInDraft = !garment.archived || openedLook?.garmentIds?.contains(id) == true
+        return garmentSaved(garment).copy(draftIds = if (keepInDraft) draftIds else draftIds - id)
+    }
 }
 
 /** Holds the state so the draft survives navigation and Android configuration changes. Saved looks live in [repository]. */
 class WardrobeViewModel(
     private val repository: SavedLookRepository,
+    private val garmentRepository: GarmentRepository,
     items: List<WardrobeItem> = sampleWardrobe,
 ) : ViewModel() {
     var state by mutableStateOf(WardrobeUiState(items))
         private set
 
     init {
-        loadLooks()
+        loadRecords()
     }
 
     fun update(change: (WardrobeUiState) -> WardrobeUiState) {
         state = change(state)
     }
 
-    fun loadLooks() {
+    /** Garments load with looks, so a look's pieces are never reported missing before they've loaded. */
+    fun loadRecords() {
         state = state.copy(looksStatus = LooksStatus.LOADING)
         viewModelScope.launch {
             state = try {
-                state.copy(savedLooks = repository.getAll(), looksStatus = LooksStatus.READY)
+                val garments = garmentRepository.getAll()
+                val looks = repository.getAll()
+                state.withUserGarments(garments).copy(savedLooks = looks, looksStatus = LooksStatus.READY)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -206,11 +295,60 @@ class WardrobeViewModel(
         }
     }
 
+    /** Shows field errors if the form isn't valid. The saving flag blocks repeated submissions. */
+    fun submitGarmentForm() {
+        val form = state.garmentForm ?: return
+        if (form.saving) return
+        val category = form.category
+        val color = form.color
+        if (!form.isValid || category == null || color == null) {
+            state = state.updateGarmentForm { it.copy(showErrors = true) }
+            return
+        }
+        val details = GarmentDetails(form.name, category, color, form.brand, form.material)
+        runGarmentAction(GARMENT_SAVE_FAILED, GarmentActionResult.SAVED) {
+            val editing = form.editing
+            if (editing == null) garmentRepository.create(details) else garmentRepository.update(editing.garment.id, details)
+        }
+    }
+
+    fun setEditedGarmentArchived(archived: Boolean) {
+        val form = state.garmentForm ?: return
+        val editing = form.editing ?: return
+        if (form.saving) return
+        runGarmentAction(GARMENT_ARCHIVE_FAILED, GarmentActionResult.ARCHIVE_CHANGED) {
+            garmentRepository.setArchived(editing.garment.id, archived)
+        }
+    }
+
+    private fun runGarmentAction(failure: String, result: GarmentActionResult, action: suspend () -> UserGarment) {
+        state = state.garmentFormStarted()
+        viewModelScope.launch {
+            state = try {
+                val garment = action()
+                when (result) {
+                    GarmentActionResult.SAVED -> state.garmentSaved(garment)
+                    GarmentActionResult.ARCHIVE_CHANGED -> state.garmentArchiveChanged(garment)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: InvalidGarmentException) {
+                state.garmentFormFailed(e.message ?: failure)
+            } catch (_: Exception) {
+                state.garmentFormFailed(failure)
+            }
+        }
+    }
+
+    private enum class GarmentActionResult { SAVED, ARCHIVE_CHANGED }
+
     override fun onCleared() {
         repository.close()
     }
 
     private companion object {
         const val SAVE_FAILED = "Couldn't save this look. Your changes are still here, so you can try again."
+        const val GARMENT_SAVE_FAILED = "Couldn't save this piece. Your changes are still here, so you can try again."
+        const val GARMENT_ARCHIVE_FAILED = "Couldn't update this piece. Please try again."
     }
 }

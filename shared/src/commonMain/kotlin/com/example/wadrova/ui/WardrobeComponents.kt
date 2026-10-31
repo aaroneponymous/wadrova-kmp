@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +37,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import com.example.wadrova.domain.GarmentCategory
 
 /** A bold title with a trailing editorial italic accent, the prototype's signature heading. */
@@ -109,7 +113,13 @@ private fun CategoryChip(label: String, count: Int, selected: Boolean, onClick: 
 
 /** Image-led selectable card. The second line previews what tapping would do to the draft. */
 @Composable
-fun GarmentCard(item: WardrobeItem, state: WardrobeUiState, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+fun GarmentCard(
+    item: WardrobeItem,
+    state: WardrobeUiState,
+    onToggle: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    onEdit: (() -> Unit)? = null,
+) {
     val selected = state.isInDraft(item)
     val replaced = state.replacedBy(item)
     val shape = RoundedCornerShape(16.dp)
@@ -120,7 +130,7 @@ fun GarmentCard(item: WardrobeItem, state: WardrobeUiState, onToggle: () -> Unit
         else -> item.colorName
     }
 
-    Column(modifier.toggleable(selected, role = Role.Checkbox) { onToggle() }) {
+    Column(if (onToggle == null) modifier else modifier.toggleable(selected, role = Role.Checkbox) { onToggle() }) {
         Box(
             Modifier
                 .fillMaxWidth()
@@ -130,17 +140,41 @@ fun GarmentCard(item: WardrobeItem, state: WardrobeUiState, onToggle: () -> Unit
                 .then(if (selected) Modifier.border(2.dp, WadrovaColors.Cobalt, shape) else Modifier),
         ) {
             GarmentIllustration(item, Modifier.fillMaxSize().padding(if (selected) 22.dp else 16.dp))
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(if (selected) WadrovaColors.Cobalt else WadrovaColors.Warm.copy(alpha = 0.8f))
-                    .then(if (selected) Modifier else Modifier.border(1.dp, WadrovaColors.Charcoal.copy(alpha = 0.15f), CircleShape)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (selected) Text("✓", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Warm)
+            if (onToggle != null) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) WadrovaColors.Cobalt else WadrovaColors.Warm.copy(alpha = 0.8f))
+                        .then(if (selected) Modifier else Modifier.border(1.dp, WadrovaColors.Charcoal.copy(alpha = 0.15f), CircleShape)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (selected) Text("✓", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Warm)
+                }
+            }
+            if (onEdit != null) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(topStart = 10.dp))
+                        .clickable(role = Role.Button, onClick = onEdit)
+                        .semantics { contentDescription = "Edit ${item.name}" }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Edit", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Cobalt)
+                }
+            }
+            if (item.isSample) {
+                Text(
+                    "Sample".uppercase(),
+                    Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.14.em),
+                    color = WadrovaColors.Ink2,
+                )
             }
         }
         Text(

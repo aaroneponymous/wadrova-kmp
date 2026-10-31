@@ -20,20 +20,25 @@ interface SavedLookRepository {
     /** Replaces an existing look's name and pieces, keeping its id. Throws like [create]. */
     suspend fun update(id: String, name: String, garmentIds: List<String>): SavedLook
 
+    /** Closes the underlying database, which other repositories may share. */
     fun close()
 }
 
 class InvalidLookException(message: String) : Exception(message)
 
+/** The repositories over one local database. */
+data class LocalRepositories(val savedLooks: SavedLookRepository, val garments: GarmentRepository)
+
 @OptIn(ExperimentalUuidApi::class)
 class SqlDelightSavedLookRepository(
     private val driver: SqlDriver,
-    private val knownGarments: List<Garment>,
+    private val sampleGarments: List<Garment>,
     private val newId: () -> String = { Uuid.random().toString() },
     private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : SavedLookRepository {
-    private val queries = WadrovaDatabase(driver).savedLookQueries
+    private val database = WadrovaDatabase(driver)
+    private val queries = database.savedLookQueries
 
     override suspend fun getAll(): List<SavedLook> = withContext(dispatcher) {
         queries.transactionWithResult {
@@ -46,20 +51,20 @@ class SqlDelightSavedLookRepository(
     }
 
     override suspend fun create(name: String, garmentIds: List<String>): SavedLook = withContext(dispatcher) {
-        val trimmed = validated(name, garmentIds)
         val now = nowMillis()
-        val look = SavedLook(newId(), trimmed, garmentIds, now, now)
-        queries.transaction {
+        val id = newId()
+        queries.transactionWithResult {
+            val look = SavedLook(id, validated(name, garmentIds), garmentIds, now, now)
             queries.insertLook(look.id, look.name, now, now)
             insertGarments(look.id, garmentIds)
+            look
         }
-        look
     }
 
     override suspend fun update(id: String, name: String, garmentIds: List<String>): SavedLook = withContext(dispatcher) {
-        val trimmed = validated(name, garmentIds)
         val now = nowMillis()
         queries.transactionWithResult {
+            val trimmed = validated(name, garmentIds)
             val existing = queries.selectLook(id).executeAsOneOrNull()
                 ?: throw InvalidLookException("This look no longer exists.")
             queries.updateLook(trimmed, now, id)
@@ -74,7 +79,7 @@ class SqlDelightSavedLookRepository(
     private fun validated(name: String, garmentIds: List<String>): String {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) throw InvalidLookException("A look needs a name.")
-        if (!canSaveLook(garmentIds, knownGarments)) {
+        if (!canSaveLook(garmentIds, sampleGarments + database.userGarmentReferences())) {
             throw InvalidLookException("This look includes a piece that is no longer in your wardrobe.")
         }
         return trimmed

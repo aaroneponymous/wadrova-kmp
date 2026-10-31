@@ -7,8 +7,8 @@ import java.util.Properties
 
 private fun file(name: String) = File(System.getProperty("java.io.tmpdir"), "$name.db")
 
-actual fun openTestDatabase(name: String): SqlDriver =
-    JdbcSqliteDriver("jdbc:sqlite:${file(name).path}", Properties(), WadrovaDatabase.Schema)
+actual fun openTestDatabase(name: String, schema: TestSchema): SqlDriver =
+    JdbcSqliteDriver("jdbc:sqlite:${file(name).path}", Properties(), schema)
 
 actual fun deleteTestDatabase(name: String) {
     file(name).delete()

@@ -288,7 +288,7 @@ private fun PieceList(draft: List<WardrobeItem>, onRemove: (WardrobeItem) -> Uni
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "${item.garment.category.singularLabel} · ${item.colorName}",
+                        "${item.garment.category.singularLabel} · ${if (item.archived) "Archived" else item.colorName}",
                         style = MaterialTheme.typography.bodySmall,
                         color = WadrovaColors.Ink2,
                     )
@@ -356,7 +356,7 @@ private fun GarmentPickerSheet(state: WardrobeUiState, update: ((WardrobeUiState
                     color = WadrovaColors.Ink2,
                 )
             }
-            CategoryChips(state.items, state.pickerFilter) { filter -> update { it.filterPicker(filter) } }
+            CategoryChips(state.availableItems, state.pickerFilter) { filter -> update { it.filterPicker(filter) } }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
                 modifier = Modifier.weight(1f).fillMaxWidth(),

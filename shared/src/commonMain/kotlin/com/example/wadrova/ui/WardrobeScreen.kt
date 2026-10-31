@@ -34,19 +34,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun WardrobeScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> WardrobeUiState) -> Unit) {
-    val visible = state.itemsIn(state.wardrobeFilter)
+    val archivedMode = state.showArchived && state.archivedItems.isNotEmpty()
+    val visible = if (archivedMode) state.archivedItems else state.itemsIn(state.wardrobeFilter)
 
     BoxWithConstraints(Modifier.fillMaxSize().background(WadrovaColors.Ivory)) {
         // On short screens, such as landscape phones, the grid needs the header's space.
         val showHeader = maxHeight >= 520.dp
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
-            WardrobeTopBar(state) { update { it.openSavedLooks() } }
-            if (showHeader) WardrobeHeader(state.items) else Spacer(Modifier.height(8.dp))
-            CategoryChips(state.items, state.wardrobeFilter) { filter -> update { it.filterWardrobe(filter) } }
+            WardrobeTopBar(
+                state,
+                onSavedLooks = { update { it.openSavedLooks() } },
+                onAdd = { update { it.openAddGarment() } },
+            )
+            if (showHeader) WardrobeHeader(state.availableItems) else Spacer(Modifier.height(8.dp))
+            if (archivedMode) {
+                ArchivedBar(state.archivedItems.size) { update { it.showArchivedPieces(false) } }
+            } else {
+                CategoryChips(state.availableItems, state.wardrobeFilter) { filter -> update { it.filterWardrobe(filter) } }
+            }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
                 modifier = Modifier.fillMaxSize(),
@@ -55,7 +66,12 @@ fun WardrobeScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wardrob
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 items(visible, key = { it.garment.id }) { item ->
-                    GarmentCard(item, state, onToggle = { update { it.toggle(item) } })
+                    GarmentCard(
+                        item,
+                        state,
+                        onToggle = if (archivedMode) null else ({ update { it.toggle(item) } }),
+                        onEdit = if (item.isSample) null else ({ update { it.openEditGarment(item) } }),
+                    )
                 }
                 if (visible.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -63,30 +79,39 @@ fun WardrobeScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> Wardrob
                     }
                 } else {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text(
-                            "Sample wardrobe · illustrated pieces, not your clothes.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = WadrovaColors.Ink2,
-                        )
+                        Column {
+                            if (!archivedMode && state.archivedItems.isNotEmpty()) {
+                                ActionButton("Archived pieces · ${state.archivedItems.size}", Modifier.padding(bottom = 16.dp)) {
+                                    update { it.showArchivedPieces(true) }
+                                }
+                            }
+                            Text(
+                                "Sample pieces are illustrated examples, not your clothes. Your pieces use a generic illustration until photos are available.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = WadrovaColors.Ink2,
+                            )
+                        }
                     }
                 }
             }
         }
-        SelectionDock(
-            count = state.draftIds.size,
-            onBuild = { update { it.openBuilder() } },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+        if (!archivedMode) {
+            SelectionDock(
+                count = state.draftIds.size,
+                onBuild = { update { it.openBuilder() } },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
     }
 }
 
 @Composable
-private fun WardrobeTopBar(state: WardrobeUiState, onSavedLooks: () -> Unit) {
+private fun WardrobeTopBar(state: WardrobeUiState, onSavedLooks: () -> Unit, onAdd: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Eyebrow("Digital Wardrobe", Modifier.weight(1f))
+        Eyebrow("Wardrobe", Modifier.weight(1f))
         Box(
             Modifier
                 .height(44.dp)
@@ -99,6 +124,45 @@ private fun WardrobeTopBar(state: WardrobeUiState, onSavedLooks: () -> Unit) {
         ) {
             val count = if (state.looksStatus == LooksStatus.READY) " · ${state.savedLooks.size}" else ""
             Text("Saved looks$count", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Charcoal)
+        }
+        Box(
+            Modifier
+                .padding(start = 6.dp)
+                .height(44.dp)
+                .clip(CircleShape)
+                .background(WadrovaColors.Charcoal)
+                .clickable(role = Role.Button, onClick = onAdd)
+                .semantics { contentDescription = "Add a piece" }
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("+ Add", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Warm)
+        }
+    }
+}
+
+@Composable
+private fun ArchivedBar(count: Int, onBack: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "$count archived. Saved looks keep them.",
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = WadrovaColors.Ink2,
+        )
+        Box(
+            Modifier
+                .height(44.dp)
+                .clip(CircleShape)
+                .border(1.dp, WadrovaColors.Line, CircleShape)
+                .clickable(role = Role.Button, onClick = onBack)
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Back", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Charcoal)
         }
     }
 }
