@@ -20,3 +20,16 @@ Never claim a build or interaction was verified unless you ran it.
 - Don't add modules, layers, dependencies, or abstractions until a current feature needs them.
 - Follow the honesty and privacy rules in `docs/product.md`.
 - `com.example.wadrova` stays as the application ID for now. Don't rename it without being asked.
+
+## Session Continuity
+
+Before starting work:
+- Read the relevant project files and existing code.
+- Check Git status and recent commits.
+- Do not assume a previous session completed a task.
+- Verify existing behavior rather than relying on memory.
+
+After completing work:
+- Summarize what changed and what was verified.
+- Identify any unfinished work or important decisions.
+- Do not create planning documents unless necessary.

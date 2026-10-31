@@ -17,6 +17,18 @@ These describe the product's direction, not what is built today.
 - **Collections:** organize saved outfits into lookbooks.
 - **Discover:** recommend external products that complement the existing wardrobe.
 
+## Outfit behavior decisions
+
+These are agreed rules for upcoming features. Some differ from the current code and aren't implemented yet.
+
+- Archived garments remain valid in existing looks but are excluded from new garment selection by default.
+- Default variation names receive sequential suffixes without repeated suffixes.
+- Unknown garment references must eventually be surfaced to the user rather than silently hidden.
+- Duplicate garment IDs are invalid in a saved outfit.
+- Swapping preserves the garment's position. Selecting the current item in swap mode does nothing; removal is a distinct action.
+- Styling around an accessory must not implicitly remove other accessories.
+- Outfit completeness rules must be consistent across Builder, Mirror, and Stylist. Dresses are alternatives to top-and-bottom combinations.
+
 ## Honesty rules
 
 - Never fabricate products, prices, availability, or retailer links.

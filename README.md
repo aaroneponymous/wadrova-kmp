@@ -32,5 +32,6 @@ Template plus outfit composition rules, 2026-10-31, on Xcode 27.0 and JDK 21:
 | Android host tests | Passed |
 | iOS simulator tests | Passed |
 | iOS simulator build and launch | Passed on iPhone 17 (iOS 27.0) |
-| Android launch on a device or emulator | Not run |
+| Android emulator install and launch | Passed on Pixel 9 Pro (API 37); template screen shown |
+| Android physical device | Not run |
 | iOS physical device | Not run; `TEAM_ID` is unset |
