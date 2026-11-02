@@ -119,6 +119,7 @@ fun GarmentCard(
     onToggle: (() -> Unit)?,
     modifier: Modifier = Modifier,
     onEdit: (() -> Unit)? = null,
+    onOpen: (() -> Unit)? = null,
 ) {
     val selected = state.isInDraft(item)
     val replaced = state.replacedBy(item)
@@ -130,7 +131,13 @@ fun GarmentCard(
         else -> item.colorName
     }
 
-    Column(if (onToggle == null) modifier else modifier.toggleable(selected, role = Role.Checkbox) { onToggle() }) {
+    // With a details page the card opens it and only the circle selects. Otherwise the whole card selects.
+    val cardAction = when {
+        onOpen != null -> Modifier.clickable(role = Role.Button, onClick = onOpen)
+        onToggle != null -> Modifier.toggleable(selected, role = Role.Checkbox) { onToggle() }
+        else -> Modifier
+    }
+    Column(modifier.then(cardAction)) {
         Box(
             Modifier
                 .fillMaxWidth()
@@ -144,14 +151,28 @@ fun GarmentCard(
                 Box(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(if (selected) WadrovaColors.Cobalt else WadrovaColors.Warm.copy(alpha = 0.8f))
-                        .then(if (selected) Modifier else Modifier.border(1.dp, WadrovaColors.Charcoal.copy(alpha = 0.15f), CircleShape)),
+                        .size(44.dp)
+                        .then(
+                            if (onOpen == null) {
+                                Modifier
+                            } else {
+                                Modifier
+                                    .toggleable(selected, role = Role.Checkbox) { onToggle() }
+                                    .semantics { contentDescription = "Select ${item.name}" }
+                            },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (selected) Text("✓", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Warm)
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) WadrovaColors.Cobalt else WadrovaColors.Warm.copy(alpha = 0.8f))
+                            .then(if (selected) Modifier else Modifier.border(1.dp, WadrovaColors.Charcoal.copy(alpha = 0.15f), CircleShape)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (selected) Text("✓", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Warm)
+                    }
                 }
             }
             if (onEdit != null) {

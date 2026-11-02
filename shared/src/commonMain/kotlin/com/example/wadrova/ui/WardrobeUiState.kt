@@ -24,7 +24,7 @@ import com.example.wadrova.domain.toggleInOutfit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Screen { WARDROBE, BUILDER, GARMENT_FORM }
+enum class Screen { WARDROBE, BUILDER, GARMENT_DETAILS, GARMENT_FORM }
 
 /** The two sides of the Wardrobe tab. Each keeps its own filters and scroll position. */
 enum class WardrobeView { ITEMS, OUTFITS }
@@ -72,6 +72,9 @@ data class GarmentFormState(
 /** A draft-replacing action waiting for confirmation: opening [look], or a new look when it's null, which [openBuilder] then shows. */
 data class PendingDiscard(val look: SavedLook?, val openBuilder: Boolean = false)
 
+/** Styling [item] would take [replaced] out of the draft, so this waits for confirmation. */
+data class PendingStyle(val item: WardrobeItem, val replaced: List<WardrobeItem>)
+
 /** Screen state for the wardrobe and builder. Outfit rules stay in the domain functions. */
 data class WardrobeUiState(
     val items: List<WardrobeItem>,
@@ -88,6 +91,8 @@ data class WardrobeUiState(
     val pendingDiscard: PendingDiscard? = null,
     val showArchived: Boolean = false,
     val garmentForm: GarmentFormState? = null,
+    val detailGarmentId: String? = null,
+    val pendingStyle: PendingStyle? = null,
 ) {
     private val garments = items.map { it.garment }
 
@@ -148,7 +153,40 @@ data class WardrobeUiState(
 
     fun openBuilder(): WardrobeUiState = copy(screen = Screen.BUILDER)
 
-    fun openWardrobe(): WardrobeUiState = copy(screen = Screen.WARDROBE, pickerOpen = false)
+    fun openWardrobe(): WardrobeUiState = copy(screen = Screen.WARDROBE, pickerOpen = false, detailGarmentId = null)
+
+    /** Looked up by id so the page shows edits as soon as they're saved. */
+    val detailItem: WardrobeItem?
+        get() = items.find { it.garment.id == detailGarmentId }
+
+    fun openGarmentDetails(item: WardrobeItem): WardrobeUiState =
+        copy(screen = Screen.GARMENT_DETAILS, detailGarmentId = item.garment.id)
+
+    /**
+     * Opens the builder with [item] in the draft, asking first if the outfit rules would replace pieces.
+     * A saved look that's merely open isn't edited: it's safe in the library, so this starts a new look.
+     */
+    fun requestStylePiece(item: WardrobeItem): WardrobeUiState {
+        if (item.archived) return this
+        val base = if (openedLook != null && !isDirty) startNew() else this
+        val replaced = base.replacedBy(item)
+        return when {
+            base.isInDraft(item) -> base.openBuilder()
+            replaced.isEmpty() -> base.toggle(item).openBuilder()
+            else -> copy(pendingStyle = PendingStyle(item, replaced))
+        }
+    }
+
+    fun confirmStylePiece(): WardrobeUiState {
+        val pending = pendingStyle ?: return this
+        return copy(pendingStyle = null).toggle(pending.item).openBuilder()
+    }
+
+    fun keepCurrentLook(): WardrobeUiState = copy(pendingStyle = null)
+
+    /** The garment form returns to the page it was opened from. */
+    private val formParent: Screen
+        get() = if (detailGarmentId != null) Screen.GARMENT_DETAILS else Screen.WARDROBE
 
     fun openPicker(filter: GarmentCategory? = null): WardrobeUiState =
         copy(pickerOpen = true, pickerFilter = filter)
@@ -237,7 +275,7 @@ data class WardrobeUiState(
     }
 
     fun closeGarmentForm(): WardrobeUiState =
-        if (garmentForm?.saving == true) this else copy(screen = Screen.WARDROBE, garmentForm = null)
+        if (garmentForm?.saving == true) this else copy(screen = formParent, garmentForm = null)
 
     fun formPhotoImportStarted(): WardrobeUiState =
         copy(garmentForm = garmentForm?.copy(importingPhoto = true, error = null))
@@ -264,7 +302,7 @@ data class WardrobeUiState(
         } else {
             listOf(item) + items
         }
-        return copy(items = updated, screen = Screen.WARDROBE, garmentForm = null)
+        return copy(items = updated, screen = formParent, garmentForm = null)
     }
 
     /** Applies a change made while the form stays open, such as an approved extraction. */

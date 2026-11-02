@@ -138,4 +138,72 @@ class WardrobeUiStateTest {
         assertEquals(Screen.BUILDER, state.screen)
         assertEquals(emptyList(), state.draftIds)
     }
+
+    @Test
+    fun detailsOpenAndReturnWithoutTouchingTheFilterOrSelection() {
+        val state = initial.filterWardrobe(GarmentCategory.TOP).toggle(item("poplin-shirt"))
+        val details = state.openGarmentDetails(item("everyday-tee"))
+        assertEquals(Screen.GARMENT_DETAILS, details.screen)
+        assertEquals(item("everyday-tee"), details.detailItem)
+        assertEquals(listOf("poplin-shirt"), details.draftIds)
+
+        val back = details.openWardrobe()
+        assertEquals(Screen.WARDROBE, back.screen)
+        assertEquals(GarmentCategory.TOP, back.wardrobeFilter)
+        assertEquals(listOf("poplin-shirt"), back.draftIds)
+        assertEquals(null, back.detailItem)
+    }
+
+    @Test
+    fun theFormReturnsToWhereItWasOpenedFrom() {
+        val fromDetails = initial.openGarmentDetails(item("poplin-shirt")).openEditGarment(item("poplin-shirt"))
+        assertEquals(Screen.GARMENT_DETAILS, fromDetails.closeGarmentForm().screen)
+        assertEquals(Screen.WARDROBE, initial.openEditGarment(item("poplin-shirt")).closeGarmentForm().screen)
+    }
+
+    @Test
+    fun stylingAPieceOpensTheBuilderWithIt() {
+        val state = initial.toggle(item("wide-trousers")).requestStylePiece(item("poplin-shirt"))
+        assertEquals(Screen.BUILDER, state.screen)
+        assertEquals(listOf("wide-trousers", "poplin-shirt"), state.draftIds)
+    }
+
+    @Test
+    fun stylingAPieceAlreadyInTheDraftKeepsIt() {
+        val state = initial.toggle(item("poplin-shirt")).requestStylePiece(item("poplin-shirt"))
+        assertEquals(Screen.BUILDER, state.screen)
+        assertEquals(listOf("poplin-shirt"), state.draftIds)
+    }
+
+    @Test
+    fun aConflictAsksBeforeReplacingPieces() {
+        val draft = initial.toggle(item("poplin-shirt")).toggle(item("straight-jeans"))
+        val asking = draft.requestStylePiece(item("slip-dress"))
+        assertEquals(Screen.WARDROBE, asking.screen)
+        assertEquals(draft.draftIds, asking.draftIds)
+        assertEquals(listOf(item("poplin-shirt"), item("straight-jeans")), asking.pendingStyle?.replaced)
+
+        assertEquals(draft.draftIds, asking.keepCurrentLook().draftIds)
+        assertEquals(null, asking.keepCurrentLook().pendingStyle)
+
+        val confirmed = asking.confirmStylePiece()
+        assertEquals(Screen.BUILDER, confirmed.screen)
+        assertEquals(listOf("slip-dress"), confirmed.draftIds)
+    }
+
+    @Test
+    fun stylingWithAnUneditedSavedLookOpenStartsANewLook() {
+        val opened = initial.copy(savedLooks = listOf(savedLook)).requestOpen(savedLook).openWardrobe()
+        val state = opened.requestStylePiece(item("everyday-tee"))
+        assertEquals(null, state.pendingStyle)
+        assertEquals(null, state.openedLook)
+        assertEquals(listOf("everyday-tee"), state.draftIds)
+    }
+
+    @Test
+    fun archivedPiecesCantBeStyled() {
+        val archived = item("poplin-shirt").copy(archived = true)
+        val state = WardrobeUiState(listOf(archived))
+        assertEquals(state, state.requestStylePiece(archived))
+    }
 }

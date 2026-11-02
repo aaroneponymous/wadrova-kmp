@@ -38,7 +38,7 @@ class PrimaryNavigationTest {
 
     @Test
     fun wardrobeDetailScreensHideTheBar() {
-        listOf(Screen.BUILDER, Screen.GARMENT_FORM).forEach {
+        listOf(Screen.BUILDER, Screen.GARMENT_DETAILS, Screen.GARMENT_FORM).forEach {
             assertFalse(visible(PrimaryTab.WARDROBE, screen = it), "$it")
         }
     }

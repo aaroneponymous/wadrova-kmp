@@ -25,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.wadrova.data.LocalRepositories
 import com.example.wadrova.ui.CreateModelScreen
 import com.example.wadrova.ui.ExtractionScreen
+import com.example.wadrova.ui.GarmentDetailsScreen
 import com.example.wadrova.ui.GarmentFormScreen
 import com.example.wadrova.ui.OutfitBuilderScreen
 import com.example.wadrova.ui.LocalPhotoLoader
@@ -102,6 +103,10 @@ fun App(createRepositories: () -> LocalRepositories) {
                                         tab = PrimaryTab.STYLIST
                                     }
                                 }
+                                Screen.GARMENT_DETAILS -> {
+                                    PlatformBackHandler { viewModel.update { it.openWardrobe() } }
+                                    GarmentDetailsScreen(state, viewModel::update)
+                                }
                                 Screen.BUILDER -> {
                                     PlatformBackHandler { viewModel.update { it.openWardrobe() } }
                                     OutfitBuilderScreen(state, viewModel::update, viewModel::save)
@@ -157,6 +162,23 @@ fun App(createRepositories: () -> LocalRepositories) {
         }
 
         MirrorDialogs(mirrorState, mirror)
+
+        state.pendingStyle?.let { pending ->
+            AlertDialog(
+                onDismissRequest = { viewModel.update { it.keepCurrentLook() } },
+                title = { Text("Replace pieces in your look?") },
+                text = {
+                    val replaced = pending.replaced.joinToString(" and ") { it.name }
+                    Text("Adding ${pending.item.name} to your current look replaces $replaced.")
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.update { it.confirmStylePiece() } }) { Text("Replace") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.update { it.keepCurrentLook() } }) { Text("Keep current look") }
+                },
+            )
+        }
 
         if (state.pendingDiscard != null) {
             AlertDialog(

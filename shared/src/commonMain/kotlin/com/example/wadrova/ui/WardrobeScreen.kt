@@ -157,6 +157,7 @@ private fun ItemsView(
                     state,
                     onToggle = if (archivedMode) null else ({ update { it.toggle(item) } }),
                     onEdit = if (item.isSample) null else ({ update { it.openEditGarment(item) } }),
+                    onOpen = { update { it.openGarmentDetails(item) } },
                 )
             }
             if (visible.isEmpty()) {
