@@ -50,6 +50,10 @@ enum class PrimaryTab(val label: String) {
 /** Mirror for this milestone, because it's the feature to test. Switch to [PrimaryTab.HOME] once Home exists. */
 val START_TAB = PrimaryTab.MIRROR
 
+/** Where Back goes from a placeholder tab: to Wardrobe if its Stylist button opened this tab, otherwise the start tab. */
+fun placeholderBackTab(tab: PrimaryTab, openedFromWardrobe: Boolean): PrimaryTab =
+    if (tab == PrimaryTab.STYLIST && openedFromWardrobe) PrimaryTab.WARDROBE else START_TAB
+
 /** The bar only shows on a tab's root screen, so a workflow can't be left half-finished behind another tab. */
 fun showsPrimaryBar(tab: PrimaryTab, screen: Screen, mirrorRoute: MirrorRoute, extracting: Boolean): Boolean = when {
     extracting -> false
@@ -111,7 +115,7 @@ fun PlaceholderScreen(tab: PrimaryTab) {
 
 /** Outline icons drawn on a 24-unit grid. */
 @Composable
-private fun TabIcon(tab: PrimaryTab, color: Color) {
+internal fun TabIcon(tab: PrimaryTab, color: Color) {
     Canvas(Modifier.size(24.dp)) {
         val stroke = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
         val unit = size.width / 24f

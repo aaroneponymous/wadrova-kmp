@@ -24,7 +24,10 @@ import com.example.wadrova.domain.toggleInOutfit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Screen { WARDROBE, BUILDER, SAVED_LOOKS, GARMENT_FORM }
+enum class Screen { WARDROBE, BUILDER, GARMENT_FORM }
+
+/** The two sides of the Wardrobe tab. Each keeps its own filters and scroll position. */
+enum class WardrobeView { ITEMS, OUTFITS }
 
 enum class LooksStatus { LOADING, READY, FAILED }
 
@@ -66,13 +69,14 @@ data class GarmentFormState(
         }
 }
 
-/** A draft-replacing action waiting for confirmation: opening [look], or a new look when it's null. */
-data class PendingDiscard(val look: SavedLook?)
+/** A draft-replacing action waiting for confirmation: opening [look], or a new look when it's null, which [openBuilder] then shows. */
+data class PendingDiscard(val look: SavedLook?, val openBuilder: Boolean = false)
 
 /** Screen state for the wardrobe and builder. Outfit rules stay in the domain functions. */
 data class WardrobeUiState(
     val items: List<WardrobeItem>,
     val screen: Screen = Screen.WARDROBE,
+    val wardrobeView: WardrobeView = WardrobeView.ITEMS,
     val wardrobeFilter: GarmentCategory? = null,
     val draftIds: List<String> = emptyList(),
     val pickerOpen: Boolean = false,
@@ -86,6 +90,9 @@ data class WardrobeUiState(
     val garmentForm: GarmentFormState? = null,
 ) {
     private val garments = items.map { it.garment }
+
+    val isShowingArchived: Boolean
+        get() = wardrobeView == WardrobeView.ITEMS && showArchived && archivedItems.isNotEmpty()
 
     /** Pieces offered for new compositions. Archived pieces stay in [items] so saved looks can resolve them. */
     val availableItems: List<WardrobeItem>
@@ -148,7 +155,7 @@ data class WardrobeUiState(
 
     fun closePicker(): WardrobeUiState = copy(pickerOpen = false)
 
-    fun openSavedLooks(): WardrobeUiState = copy(screen = Screen.SAVED_LOOKS)
+    fun showWardrobeView(view: WardrobeView): WardrobeUiState = copy(wardrobeView = view)
 
     fun removeUnknownPieces(): WardrobeUiState = copy(draftIds = draftIds - unknownDraftIds.toSet())
 
@@ -159,9 +166,15 @@ data class WardrobeUiState(
     fun requestNewLook(): WardrobeUiState =
         if (isDirty) copy(pendingDiscard = PendingDiscard(null)) else startNew()
 
+    /** Opens the builder on an empty look, asking first if that would discard unsaved changes. */
+    fun requestNewOutfit(): WardrobeUiState =
+        if (isDirty) copy(pendingDiscard = PendingDiscard(null, openBuilder = true)) else startNew().openBuilder()
+
     fun confirmDiscard(): WardrobeUiState {
         val pending = pendingDiscard ?: return this
-        return copy(pendingDiscard = null).run { pending.look?.let(::open) ?: startNew() }
+        return copy(pendingDiscard = null).run {
+            pending.look?.let(::open) ?: startNew().let { if (pending.openBuilder) it.openBuilder() else it }
+        }
     }
 
     fun keepDraft(): WardrobeUiState = copy(pendingDiscard = null)

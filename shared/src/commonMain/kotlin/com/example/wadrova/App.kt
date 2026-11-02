@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,12 +39,12 @@ import com.example.wadrova.ui.PrimaryNavigationBar
 import com.example.wadrova.ui.PrimaryTab
 import com.example.wadrova.ui.START_TAB
 import com.example.wadrova.ui.TryOnScreen
-import com.example.wadrova.ui.SavedLooksScreen
 import com.example.wadrova.ui.Screen
 import com.example.wadrova.ui.WadrovaColors
 import com.example.wadrova.ui.WadrovaTheme
 import com.example.wadrova.ui.WardrobeScreen
 import com.example.wadrova.ui.WardrobeViewModel
+import com.example.wadrova.ui.placeholderBackTab
 import com.example.wadrova.ui.primaryBarInsets
 import com.example.wadrova.ui.showsPrimaryBar
 
@@ -68,7 +69,11 @@ fun App(createRepositories: () -> LocalRepositories) {
     val state = viewModel.state
     val mirrorState = mirror.state
     var tab by rememberSaveable { mutableStateOf(START_TAB) }
+    var stylistFromWardrobe by rememberSaveable { mutableStateOf(false) }
     val tabStates = rememberSaveableStateHolder()
+    // Up here so each list keeps its position across the builder and the garment form.
+    val itemsGrid = rememberLazyGridState()
+    val outfitsGrid = rememberLazyGridState()
 
     WadrovaTheme {
         CompositionLocalProvider(LocalPhotoLoader provides mirror.imageLoader) {
@@ -86,21 +91,20 @@ fun App(createRepositories: () -> LocalRepositories) {
                             tab == PrimaryTab.WARDROBE -> when (state.screen) {
                                 Screen.WARDROBE -> {
                                     PlatformBackHandler {
-                                        if (state.showArchived && state.archivedItems.isNotEmpty()) {
+                                        if (state.isShowingArchived) {
                                             viewModel.update { it.showArchivedPieces(false) }
                                         } else {
                                             tab = START_TAB
                                         }
                                     }
-                                    WardrobeScreen(state, viewModel::update)
+                                    WardrobeScreen(state, viewModel::update, viewModel::loadRecords, itemsGrid, outfitsGrid) {
+                                        stylistFromWardrobe = true
+                                        tab = PrimaryTab.STYLIST
+                                    }
                                 }
                                 Screen.BUILDER -> {
                                     PlatformBackHandler { viewModel.update { it.openWardrobe() } }
                                     OutfitBuilderScreen(state, viewModel::update, viewModel::save)
-                                }
-                                Screen.SAVED_LOOKS -> {
-                                    PlatformBackHandler { viewModel.update { it.openWardrobe() } }
-                                    SavedLooksScreen(state, viewModel::update, viewModel::loadRecords)
                                 }
                                 Screen.GARMENT_FORM -> {
                                     PlatformBackHandler { viewModel.cancelGarmentForm() }
@@ -134,13 +138,21 @@ fun App(createRepositories: () -> LocalRepositories) {
                                 }
                             }
                             else -> {
-                                PlatformBackHandler { tab = START_TAB }
+                                PlatformBackHandler {
+                                    tab = placeholderBackTab(tab, stylistFromWardrobe)
+                                    stylistFromWardrobe = false
+                                }
                                 PlaceholderScreen(tab)
                             }
                         }
                     }
                 }
-                if (showBar) PrimaryNavigationBar(tab) { tab = it }
+                if (showBar) {
+                    PrimaryNavigationBar(tab) {
+                        if (it != tab) stylistFromWardrobe = false
+                        tab = it
+                    }
+                }
             }
         }
 

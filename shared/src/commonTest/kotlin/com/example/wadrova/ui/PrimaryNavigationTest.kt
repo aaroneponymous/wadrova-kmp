@@ -24,13 +24,21 @@ class PrimaryNavigationTest {
     }
 
     @Test
+    fun backFromStylistReturnsToWardrobeOnlyWhenOpenedFromIt() {
+        assertEquals(PrimaryTab.WARDROBE, placeholderBackTab(PrimaryTab.STYLIST, openedFromWardrobe = true))
+        assertEquals(START_TAB, placeholderBackTab(PrimaryTab.STYLIST, openedFromWardrobe = false))
+        assertEquals(START_TAB, placeholderBackTab(PrimaryTab.HOME, openedFromWardrobe = false))
+        assertEquals(START_TAB, placeholderBackTab(PrimaryTab.DISCOVER, openedFromWardrobe = true))
+    }
+
+    @Test
     fun everyRootScreenShowsTheBar() {
         PrimaryTab.entries.forEach { assertTrue(visible(it), "$it") }
     }
 
     @Test
     fun wardrobeDetailScreensHideTheBar() {
-        listOf(Screen.BUILDER, Screen.SAVED_LOOKS, Screen.GARMENT_FORM).forEach {
+        listOf(Screen.BUILDER, Screen.GARMENT_FORM).forEach {
             assertFalse(visible(PrimaryTab.WARDROBE, screen = it), "$it")
         }
     }
