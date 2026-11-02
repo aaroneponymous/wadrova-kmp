@@ -111,7 +111,7 @@ private fun WardrobeTopBar(state: WardrobeUiState, onSavedLooks: () -> Unit, onA
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Eyebrow("Wardrobe", Modifier.weight(1f))
+        Spacer(Modifier.weight(1f))
         Box(
             Modifier
                 .height(44.dp)

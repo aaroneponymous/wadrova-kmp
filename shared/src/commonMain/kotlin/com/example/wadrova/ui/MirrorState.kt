@@ -14,6 +14,7 @@ import com.example.wadrova.data.MirrorBackend
 import com.example.wadrova.data.MirrorBackendException
 import com.example.wadrova.data.MirrorRepository
 import com.example.wadrova.data.PhotoSize
+import com.example.wadrova.data.PickedPhoto
 import com.example.wadrova.domain.ApprovedModel
 import com.example.wadrova.domain.GarmentImageKind
 import com.example.wadrova.domain.TryOnResult
@@ -96,6 +97,9 @@ class MirrorViewModel(
 
     private var generation: Job? = null
 
+    /** Tells an import still running that the flow it belonged to has ended. */
+    private var createSession = 0
+
     init {
         load()
         // Only here, before any flow can hold an unapproved result.
@@ -148,6 +152,7 @@ class MirrorViewModel(
     // Create Your Model
 
     fun startCreateModel() {
+        createSession++
         state = state.copy(route = MirrorRoute.CREATE_MODEL, create = CreateModelState())
     }
 
@@ -164,32 +169,72 @@ class MirrorViewModel(
             PhotoPickResult.Cancelled -> updateCreate { it.copy(replacingId = null) }
             PhotoPickResult.Failed -> updateCreate { it.copy(replacingId = null, error = PHOTO_FAILED) }
             is PhotoPickResult.Picked -> {
-                if (state.create?.canAddReference != true) return
-                updateCreate { it.copy(addingPhoto = true, error = null) }
-                viewModelScope.launch {
-                    try {
-                        val imported = photos.import(result.photo)
-                        val create = state.create
-                        if (create == null) {
-                            quietly { photos.delete(imported) }
-                            return@launch
-                        }
-                        val replacing = create.replacingId
-                        replacing?.let { quietly { photos.delete(it) } }
-                        updateCreate {
-                            val ids = if (replacing == null) {
-                                it.referenceIds + imported
-                            } else {
-                                it.referenceIds.map { id -> if (id == replacing) imported else id }
-                            }
-                            it.copy(referenceIds = ids, replacingId = null, addingPhoto = false)
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        updateCreate { it.copy(replacingId = null, addingPhoto = false, error = PHOTO_FAILED) }
-                    }
+                val replacing = state.create?.replacingId
+                if (replacing == null) {
+                    onReferencesPicked(PhotoBatch(listOf(result.photo)))
+                } else {
+                    replaceReference(replacing, result.photo)
                 }
+            }
+        }
+    }
+
+    /**
+     * Imports one at a time so the references keep the selected order. Every photo goes through the
+     * store, even one that's no longer wanted, because that also removes the picker's temporary copy.
+     */
+    fun onReferencesPicked(batch: PhotoBatch) {
+        if (batch.isCancelled || state.create?.addingPhoto != false) return
+        val session = createSession
+        updateCreate { it.copy(replacingId = null, addingPhoto = true, error = null) }
+        viewModelScope.launch {
+            var failed = batch.failed
+            batch.photos.forEach { photo ->
+                try {
+                    val imported = photos.import(photo)
+                    val create = state.create
+                    if (session != createSession || create == null || create.referenceIds.size >= MAX_MODEL_REFERENCES) {
+                        quietly { photos.delete(imported) }
+                    } else {
+                        updateCreate { it.copy(referenceIds = it.referenceIds + imported) }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    failed++
+                }
+            }
+            if (session == createSession) {
+                val error = when {
+                    failed == 0 -> null
+                    batch.photos.size + batch.failed == 1 -> PHOTO_FAILED
+                    failed == 1 -> "Couldn't use one of those photos. Try a different one."
+                    else -> "Couldn't use $failed of those photos. Try different ones."
+                }
+                updateCreate { it.copy(addingPhoto = false, error = error) }
+            }
+        }
+    }
+
+    private fun replaceReference(replacing: String, photo: PickedPhoto) {
+        val session = createSession
+        updateCreate { it.copy(addingPhoto = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val imported = photos.import(photo)
+                if (session != createSession || state.create == null) {
+                    quietly { photos.delete(imported) }
+                    return@launch
+                }
+                quietly { photos.delete(replacing) }
+                updateCreate {
+                    val ids = it.referenceIds.map { id -> if (id == replacing) imported else id }
+                    it.copy(referenceIds = ids, replacingId = null, addingPhoto = false)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                updateCreate { it.copy(replacingId = null, addingPhoto = false, error = PHOTO_FAILED) }
             }
         }
     }
@@ -248,6 +293,7 @@ class MirrorViewModel(
     }
 
     fun cancelCreateModel() {
+        createSession++
         generation?.cancel()
         val create = state.create
         state = state.copy(create = null, route = MirrorRoute.HOME, consent = null)

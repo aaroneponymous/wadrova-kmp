@@ -257,6 +257,128 @@ class MirrorViewModelTest {
         assertNull(viewModel.state.create!!.replacingId)
     }
 
+    private fun batch(vararg locations: String, failed: Int = 0) = PhotoBatch(locations.map(::PickedPhoto), failed)
+
+    private fun MirrorViewModel.selectedLocations() = state.create!!.referenceIds.map { photos.importedFrom[it] }
+
+    @Test
+    fun aBatchKeepsTheSelectedOrderAndTheFirstIsTheMainReference() {
+        val viewModel = viewModel()
+        viewModel.startCreateModel()
+        viewModel.onReferencesPicked(batch("e", "a", "d", "b", "c"))
+        assertEquals(listOf("e", "a", "d", "b", "c"), viewModel.selectedLocations())
+    }
+
+    @Test
+    fun aLaterBatchAppendsToExistingReferences() {
+        val viewModel = viewModel()
+        viewModel.startCreateModel()
+        viewModel.onReferencesPicked(batch("a", "b", "c"))
+        viewModel.onReferencesPicked(batch("d", "e"))
+        assertEquals(listOf("a", "b", "c", "d", "e"), viewModel.selectedLocations())
+    }
+
+    @Test
+    fun extraPhotosBeyondFiveAreDiscarded() {
+        val viewModel = viewModel()
+        viewModel.startCreateModel()
+        viewModel.onReferencesPicked(batch("a", "b", "c", "d"))
+        viewModel.onReferencesPicked(batch("e", "f"))
+        assertEquals(listOf("a", "b", "c", "d", "e"), viewModel.selectedLocations())
+        assertEquals(1, photos.deleted.size)
+        assertEquals(setOf("f"), photos.deleted.map { photos.importedFrom[it] }.toSet())
+    }
+
+    @Test
+    fun replacingKeepsTheSlotWhileAppendingAddsToTheEnd() {
+        val viewModel = viewModel()
+        viewModel.startCreateModel()
+        viewModel.onReferencesPicked(batch("a", "b", "c"))
+        viewModel.beginReplaceReference(viewModel.state.create!!.referenceIds[1])
+        viewModel.onReferencePicked(PhotoPickResult.Picked(PickedPhoto("new")))
+        assertEquals(listOf("a", "new", "c"), viewModel.selectedLocations())
+        viewModel.onReferencesPicked(batch("d"))
+        assertEquals(listOf("a", "new", "c", "d"), viewModel.selectedLocations())
+    }
+
+    @Test
+    fun aCancelledBatchChangesNothing() {
+        val viewModel = viewModel()
+        viewModel.startCreateModel()
+        viewModel.onReferencesPicked(batch("a", "b"))
+        val before = viewModel.state.create
+        viewModel.onReferencesPicked(batch())
+        assertEquals(before, viewModel.state.create)
+    }
+
+    @Test
+    fun aPartialFailureKeepsTheRestInOrderThenRecovers() {
+        val viewModel = viewModel()
+        viewModel.startCreateModel()
+        photos.failingLocations += "b"
+        viewModel.onReferencesPicked(batch("a", "b", "c", failed = 1))
+        assertEquals(listOf("a", "c"), viewModel.selectedLocations())
+        assertEquals("Couldn't use 2 of those photos. Try different ones.", viewModel.state.create!!.error)
+        assertFalse(viewModel.state.create!!.addingPhoto)
+
+        viewModel.onReferencesPicked(batch("d"))
+        assertEquals(listOf("a", "c", "d"), viewModel.selectedLocations())
+        assertNull(viewModel.state.create!!.error)
+    }
+
+    @Test
+    fun createModelStaysDisabledUntilEveryImportFinishes() {
+        val viewModel = viewModel()
+        viewModel.startCreateModel()
+        viewModel.setConfirmedFullBody(true)
+        val gate = CompletableDeferred<Unit>()
+        photos.importGate = gate
+        viewModel.onReferencesPicked(batch("a", "b", "c"))
+        assertTrue(viewModel.state.create!!.addingPhoto)
+        assertFalse(viewModel.state.create!!.canGenerate)
+        assertFalse(viewModel.state.create!!.canAddReference)
+
+        gate.complete(Unit)
+        assertFalse(viewModel.state.create!!.addingPhoto)
+        assertTrue(viewModel.state.create!!.canGenerate)
+    }
+
+    @Test
+    fun aBatchFinishingAfterCancelDoesNotJoinALaterFlow() {
+        val viewModel = viewModel()
+        viewModel.startCreateModel()
+        val gate = CompletableDeferred<Unit>()
+        photos.importGate = gate
+        viewModel.onReferencesPicked(batch("a", "b"))
+        viewModel.cancelCreateModel()
+        viewModel.startCreateModel()
+        gate.complete(Unit)
+        assertTrue(viewModel.state.create!!.referenceIds.isEmpty())
+        assertFalse(viewModel.state.create!!.addingPhoto)
+        assertEquals(2, photos.deleted.size)
+    }
+
+    @Test
+    fun generationRunningPreventsASecondSubmission() {
+        val viewModel = readyToGenerate()
+        val gate = CompletableDeferred<Unit>()
+        backend.gate = gate
+        viewModel.generateCandidate()
+        assertTrue(viewModel.state.create!!.generating)
+        assertFalse(viewModel.state.create!!.canGenerate)
+        viewModel.generateCandidate()
+        assertEquals(1, backend.calls.size)
+        gate.complete(Unit)
+    }
+
+    @Test
+    fun buttonColorsAreExplicitInEveryState() {
+        assertEquals(WadrovaColors.Charcoal to WadrovaColors.Warm, actionButtonColors(dark = true, enabled = true))
+        assertEquals(WadrovaColors.Studio to WadrovaColors.Ink2, actionButtonColors(dark = true, enabled = false))
+        assertEquals(WadrovaColors.Studio to WadrovaColors.Ink2, actionButtonColors(dark = false, enabled = false))
+        assertEquals(WadrovaColors.CobaltSoft to WadrovaColors.Cobalt, actionButtonColors(dark = false, enabled = true))
+    }
+
     @Test
     fun theChosenMainReferenceIsSentFirst() {
         val viewModel = readyToGenerate()

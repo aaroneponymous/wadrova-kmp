@@ -42,8 +42,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -314,6 +314,13 @@ private fun PieceList(draft: List<WardrobeItem>, onRemove: (WardrobeItem) -> Uni
     }
 }
 
+/** Disabled is its own pair of colors, so a button is never dimmed against whatever sits behind it. */
+internal fun actionButtonColors(dark: Boolean, enabled: Boolean): Pair<Color, Color> = when {
+    !enabled -> WadrovaColors.Studio to WadrovaColors.Ink2
+    dark -> WadrovaColors.Charcoal to WadrovaColors.Warm
+    else -> WadrovaColors.CobaltSoft to WadrovaColors.Cobalt
+}
+
 @Composable
 internal fun ActionButton(
     label: String,
@@ -322,20 +329,20 @@ internal fun ActionButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val (background, content) = actionButtonColors(dark, enabled)
     Box(
         modifier
             .fillMaxWidth()
             .height(48.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(if (dark) WadrovaColors.Charcoal else WadrovaColors.CobaltSoft)
-            .alpha(if (enabled) 1f else 0.4f)
+            .background(background)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,
-            color = if (dark) WadrovaColors.Warm else WadrovaColors.Cobalt,
+            color = content,
         )
     }
 }
