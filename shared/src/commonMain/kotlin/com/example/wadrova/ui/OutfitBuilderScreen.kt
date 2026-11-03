@@ -36,9 +36,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,106 +64,126 @@ fun OutfitBuilderScreen(
 ) {
     val draft = state.draftItems
     val opened = state.openedLook
+    val snackbar = remember { SnackbarHostState() }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(WadrovaColors.Ivory)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(WadrovaColors.Warm)
-                    .border(1.dp, WadrovaColors.Line, CircleShape)
-                    .clickable(role = Role.Button) { update { it.requestLeaveBuilder() } }
-                    .semantics { contentDescription = if (state.detailGarmentId != null) "Back to garment details" else "Back to wardrobe" },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("‹", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
-            }
-            Eyebrow(
-                when {
-                    opened == null -> "New look"
-                    state.isDirty -> "Editing look · unsaved changes"
-                    else -> "Saved look"
-                },
-                Modifier.weight(1f),
-            )
+    state.saveNotice?.let { notice ->
+        LaunchedEffect(notice) {
+            snackbar.showSnackbar(notice.message)
+            update { it.clearSaveNotice() }
         }
+    }
 
+    Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                // Room below the last action so it scrolls clear of the action bar.
-                .padding(top = 4.dp, bottom = 48.dp),
+                .fillMaxSize()
+                .background(WadrovaColors.Ivory)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
         ) {
-            Box(Modifier.padding(bottom = 16.dp)) {
-                if (opened == null) {
-                    EditorialTitle("Create ", "a look", WadrovaColors.Cobalt)
-                } else {
-                    Text(opened.name, style = MaterialTheme.typography.displaySmall, color = WadrovaColors.Charcoal)
-                }
-            }
-
-            if (state.isEditingEmptyLook && opened != null) {
-                EmptiedLook(
-                    opened.name,
-                    onAdd = { update { it.openPicker() } },
-                    onDiscard = { update { it.restoreSavedLook() } },
-                )
-            } else if (draft.isEmpty()) {
-                EmptyCanvas(
-                    onAdd = { update { it.openPicker() } },
-                    onStart = { category -> update { it.openPicker(category) } },
-                )
-            } else {
-                Moodboard(draft)
-                Text(
-                    if (opened != null) "${draft.size} ${if (draft.size == 1) "piece" else "pieces"}" else "Look in progress · ${draft.size.toString().padStart(2, '0')}",
-                    Modifier.padding(start = 4.dp, top = 10.dp),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = MaterialTheme.typography.titleSmall.fontSize, lineHeight = MaterialTheme.typography.titleSmall.lineHeight),
-                    color = WadrovaColors.Ink2,
-                )
-            }
-            if (state.unknownDraftIds.isNotEmpty()) {
-                MissingPiecesNotice(state.unknownDraftIds.size, onRemove = { update { it.removeUnknownPieces() } })
-            }
-            if (draft.isNotEmpty()) {
-                PieceList(draft, onRemove = { item -> update { it.toggle(item) } })
-            }
-            if (opened != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Box(
                     Modifier
-                        .padding(top = 32.dp)
-                        .align(Alignment.CenterHorizontally)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable(role = Role.Button) { update { it.requestNewOutfit() } }
-                        .padding(horizontal = 16.dp),
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(WadrovaColors.Warm)
+                        .border(1.dp, WadrovaColors.Line, CircleShape)
+                        .clickable(role = Role.Button) { update { it.requestLeaveBuilder() } }
+                        .semantics { contentDescription = if (state.detailGarmentId != null) "Back to garment details" else "Back to wardrobe" },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("Start a new look", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Ink2)
+                    Text("‹", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
+                }
+                Eyebrow(
+                    when {
+                        opened == null -> "New look"
+                        state.isDirty -> "Editing look · unsaved changes"
+                        else -> "Saved look"
+                    },
+                    Modifier.weight(1f),
+                )
+            }
+
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    // Room below the last action so it scrolls clear of the action bar.
+                    .padding(top = 4.dp, bottom = 48.dp),
+            ) {
+                Box(Modifier.padding(bottom = 16.dp)) {
+                    if (opened == null) {
+                        EditorialTitle("Create ", "a look", WadrovaColors.Cobalt)
+                    } else {
+                        Text(opened.name, style = MaterialTheme.typography.displaySmall, color = WadrovaColors.Charcoal)
+                    }
+                }
+
+                if (state.isEditingEmptyLook && opened != null) {
+                    EmptiedLook(
+                        opened.name,
+                        onAdd = { update { it.openPicker() } },
+                        onDiscard = { update { it.restoreSavedLook() } },
+                    )
+                } else if (draft.isEmpty()) {
+                    EmptyCanvas(
+                        onAdd = { update { it.openPicker() } },
+                        onStart = { category -> update { it.openPicker(category) } },
+                    )
+                } else {
+                    Moodboard(draft)
+                    Text(
+                        if (opened != null) "${draft.size} ${if (draft.size == 1) "piece" else "pieces"}" else "Look in progress · ${draft.size.toString().padStart(2, '0')}",
+                        Modifier.padding(start = 4.dp, top = 10.dp),
+                        style = MaterialTheme.typography.headlineSmall.copy(fontSize = MaterialTheme.typography.titleSmall.fontSize, lineHeight = MaterialTheme.typography.titleSmall.lineHeight),
+                        color = WadrovaColors.Ink2,
+                    )
+                }
+                if (state.unknownDraftIds.isNotEmpty()) {
+                    MissingPiecesNotice(state.unknownDraftIds.size, onRemove = { update { it.removeUnknownPieces() } })
+                }
+                if (draft.isNotEmpty()) {
+                    PieceList(draft, onRemove = { item -> update { it.toggle(item) } })
+                }
+                if (opened != null) {
+                    Box(
+                        Modifier
+                            .padding(top = 32.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(role = Role.Button) { update { it.requestNewOutfit() } }
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Start a new look", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Ink2)
+                    }
                 }
             }
-        }
 
-        if (draft.isNotEmpty()) {
-            BuilderActions(
-                showSave = opened == null || state.isDirty,
-                canSave = state.canSaveDraft,
-                onAdd = { update { it.openPicker() } },
-                onSave = { update { it.openSaveSheet() } },
-            )
+            if (draft.isNotEmpty()) {
+                BuilderActions(
+                    showSave = opened == null || state.isDirty,
+                    canSave = state.canSaveDraft,
+                    onAdd = { update { it.openPicker() } },
+                    onSave = { update { it.openSaveSheet() } },
+                )
+            }
+        }
+        // Above the action bar, so the confirmation never covers Add pieces or Save look.
+        SnackbarHost(
+            snackbar,
+            Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(start = 20.dp, end = 20.dp, bottom = 84.dp),
+        ) { data ->
+            Snackbar(data, shape = RoundedCornerShape(14.dp), containerColor = WadrovaColors.Charcoal, contentColor = WadrovaColors.Warm)
         }
     }
 
@@ -199,6 +224,12 @@ private fun MissingPiecesNotice(count: Int, onRemove: () -> Unit) {
             if (count == 1) "1 piece is no longer in your wardrobe." else "$count pieces are no longer in your wardrobe.",
             style = MaterialTheme.typography.bodyMedium,
             color = WadrovaColors.Charcoal,
+        )
+        Text(
+            "Remove unavailable pieces before saving.",
+            Modifier.padding(top = 4.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = WadrovaColors.Ink2,
         )
         ActionButton("Remove from this look", Modifier.padding(top = 12.dp), onClick = onRemove)
     }
@@ -389,7 +420,7 @@ private fun GarmentPickerSheet(state: WardrobeUiState, update: ((WardrobeUiState
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 items(visible, key = { it.garment.id }) { item ->
-                    GarmentCard(item, state, onToggle = { update { it.toggle(item) } })
+                    GarmentCard(item, state, onToggle = { update { it.requestToggle(item) } })
                 }
                 if (visible.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -448,7 +479,17 @@ private fun SaveLookSheet(
                 enabled = !sheet.saving,
                 textStyle = MaterialTheme.typography.bodyMedium,
                 shape = RoundedCornerShape(14.dp),
+                isError = sheet.nameEdited && sheet.name.isBlank(),
             )
+            // Says why Save is unavailable; a missing name only turns red once the field has been touched.
+            state.saveBlocker?.takeUnless { sheet.saving }?.let { reason ->
+                Text(
+                    reason,
+                    Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (sheet.nameEdited && sheet.name.isBlank()) MaterialTheme.colorScheme.error else WadrovaColors.Ink2,
+                )
+            }
             sheet.error?.let { error ->
                 Text(
                     error,

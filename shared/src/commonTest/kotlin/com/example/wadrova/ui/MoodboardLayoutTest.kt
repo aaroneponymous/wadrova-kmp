@@ -167,4 +167,45 @@ class MoodboardLayoutTest {
         assertTrue(two < 1f)
         assertTrue(two < eight)
     }
+
+    @Test
+    fun previewsChooseTheLeadThenTheCoreOfTheOutfit() {
+        // Ahoy in its saved order: four accessories and sneakers before the jacket, tank and trousers.
+        val ahoy = listOf(FOOTWEAR, ACCESSORY, ACCESSORY, ACCESSORY, OUTERWEAR, TOP, BOTTOM)
+        assertEquals(listOf(0, 4, 5, 6), previewSelection(ahoy, 4))
+        assertEquals(listOf(4, 5, 6), previewSelection(ahoy, 3))
+
+        val dress = listOf(OUTERWEAR, ACCESSORY, FOOTWEAR, DRESS)
+        assertEquals(listOf(0, 2, 3), previewSelection(dress, 3))
+        assertEquals(listOf(0), previewSelection(listOf(ACCESSORY, ACCESSORY), 4).take(1))
+    }
+
+    @Test
+    fun aDressLeadsThePreviewEvenWithACoat() {
+        val pieces = photos(OUTERWEAR, DRESS, FOOTWEAR, ACCESSORY)
+        val (coat, dress) = previewLayout(pieces, 1.25f)
+        assertTrue(area(dress) > area(coat))
+    }
+
+    @Test
+    fun smallOutfitsFillThePreviewAndLargeOnesStayInside() {
+        val single = previewLayout(photos(DRESS), 1.25f).single()
+        assertEquals(1.25f, single.height, 0.0001f)
+        assertEquals(1f, single.x * 2 + single.width, 0.0001f)
+
+        val pieces = photos(OUTERWEAR, TOP, BOTTOM, FOOTWEAR)
+        val slots = previewLayout(pieces, 1.25f)
+        assertValid(pieces, MoodLayout(slots, 1.25f))
+        assertTrue(slots.maxOf { it.y + it.height } > 1.2499f || slots.maxOf { it.x + it.width } - slots.minOf { it.x } > 0.9999f, "fills the canvas one way")
+        assertTrue(slots.all { it.width > 0.15f }, "every shown piece stays legible")
+    }
+
+    @Test
+    fun previewsAreDeterministicAndCountWhatTheyLeaveOut() {
+        val categories = listOf(OUTERWEAR, TOP, BOTTOM, FOOTWEAR, ACCESSORY, ACCESSORY, ACCESSORY, ACCESSORY)
+        assertEquals(previewSelection(categories, 4), previewSelection(categories, 4))
+        assertEquals(previewLayout(photos(*categories.toTypedArray()).take(4), 1.25f), previewLayout(photos(*categories.toTypedArray()).take(4), 1.25f))
+        assertEquals(4, categories.size - previewSelection(categories, 4).size)
+        assertEquals(listOf(0, 1), previewSelection(listOf(TOP, BOTTOM), 4))
+    }
 }

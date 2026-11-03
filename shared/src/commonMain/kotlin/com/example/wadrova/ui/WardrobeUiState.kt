@@ -20,6 +20,7 @@ import com.example.wadrova.domain.canSaveLook
 import com.example.wadrova.domain.isDraftDirty
 import com.example.wadrova.domain.nextVariationName
 import com.example.wadrova.domain.pickGarments
+import com.example.wadrova.domain.replacedByAdding
 import com.example.wadrova.domain.toggleInOutfit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -33,12 +34,27 @@ enum class LooksStatus { LOADING, READY, FAILED }
 
 enum class SaveMode { NEW, UPDATE }
 
+/**
+ * The Save Look sheet. Each mode keeps its own name, so switching modes never loses what was typed.
+ * [nameEdited] holds back a missing-name warning until the user has touched the field.
+ */
 data class SaveSheetState(
-    val name: String,
+    val newName: String,
+    val updateName: String = "",
     val mode: SaveMode = SaveMode.NEW,
     val saving: Boolean = false,
     val error: String? = null,
-)
+    val nameEdited: Boolean = false,
+) {
+    val name: String get() = if (mode == SaveMode.UPDATE) updateName else newName
+}
+
+/** Confirms a save once the repository has stored it. */
+enum class SaveNotice(val message: String) {
+    LOOK_SAVED("Look saved"),
+    CHANGES_SAVED("Changes saved"),
+    VARIATION_SAVED("Variation saved"),
+}
 
 /** The Add/Edit Garment form. [showErrors] turns on field validation after a submit attempt. */
 data class GarmentFormState(
@@ -90,8 +106,11 @@ data class LookEdit(val look: SavedLook, val garmentIds: List<String> = look.gar
 /** A saved look waiting for delete confirmation, then for the repository. */
 data class PendingLookDelete(val look: SavedLook, val deleting: Boolean = false, val error: String? = null)
 
-/** Styling [item] would take [replaced] out of the draft, so this waits for confirmation. */
-data class PendingStyle(val item: WardrobeItem, val replaced: List<WardrobeItem>)
+/**
+ * Adding [item] would take [replaced] out of the look, so this waits for confirmation.
+ * [openBuilder] is set when it came from styling a piece, which then opens the builder.
+ */
+data class PendingReplacement(val item: WardrobeItem, val replaced: List<WardrobeItem>, val openBuilder: Boolean = false)
 
 /** Screen state for the wardrobe and builder. Outfit rules stay in the domain functions. */
 data class WardrobeUiState(
@@ -111,7 +130,10 @@ data class WardrobeUiState(
     val showArchived: Boolean = false,
     val garmentForm: GarmentFormState? = null,
     val detailGarmentId: String? = null,
-    val pendingStyle: PendingStyle? = null,
+    val pendingReplacement: PendingReplacement? = null,
+    val saveNotice: SaveNotice? = null,
+    /** A just-saved look that Your Outfits scrolls to next time it shows, so a save never looks lost. */
+    val revealLookId: String? = null,
 ) {
     private val garments = items.map { it.garment }
 
@@ -169,7 +191,17 @@ data class WardrobeUiState(
         get() = isDirty && canSaveLook(builderIds, garments)
 
     val canSubmitSave: Boolean
-        get() = saveSheet?.let { !it.saving && it.name.isNotBlank() && canSaveDraft } ?: false
+        get() = saveSheet?.let { !it.saving && saveBlocker == null } ?: false
+
+    /** Why the look can't be saved as it stands, or null if it can. */
+    val saveBlocker: String?
+        get() = when {
+            builderIds.isEmpty() -> "Add at least one piece to save."
+            unknownDraftIds.isNotEmpty() -> "Remove unavailable pieces before saving."
+            !canSaveDraft -> "Change a piece to save this look."
+            saveSheet?.name?.isBlank() == true -> "Enter a name to save this look."
+            else -> null
+        }
 
     fun itemsFor(look: SavedLook): List<WardrobeItem> =
         pickGarments(garments, look.garmentIds).map { garment -> items.first { it.garment == garment } }
@@ -186,9 +218,8 @@ data class WardrobeUiState(
 
     /** The pieces that adding [item] would remove from the current context. */
     fun replacedBy(item: WardrobeItem): List<WardrobeItem> {
-        if (isInDraft(item)) return emptyList()
-        val remaining = toggleInOutfit(builderIds, item.garment, garments)
-        return draftItems.filter { it.garment.id !in remaining }
+        val replaced = replacedByAdding(builderIds, item.garment, garments)
+        return draftItems.filter { it.garment.id in replaced }
     }
 
     private fun withBuilderIds(ids: List<String>): WardrobeUiState =
@@ -197,18 +228,33 @@ data class WardrobeUiState(
     fun toggle(item: WardrobeItem): WardrobeUiState =
         withBuilderIds(toggleInOutfit(builderIds, item.garment, garments))
 
+    /** Adds or removes [item], asking first if adding it would replace pieces already in the look. */
+    fun requestToggle(item: WardrobeItem): WardrobeUiState {
+        val replaced = replacedBy(item)
+        return if (replaced.isEmpty()) toggle(item) else copy(pendingReplacement = PendingReplacement(item, replaced))
+    }
+
+    fun confirmReplacement(): WardrobeUiState {
+        val pending = pendingReplacement ?: return this
+        val replaced = copy(pendingReplacement = null).toggle(pending.item)
+        return if (pending.openBuilder) replaced.openBuilder() else replaced
+    }
+
+    /** Leaves the look exactly as it was. */
+    fun cancelReplacement(): WardrobeUiState = copy(pendingReplacement = null)
+
     fun filterWardrobe(filter: GarmentCategory?): WardrobeUiState = copy(wardrobeFilter = filter)
 
     fun filterPicker(filter: GarmentCategory?): WardrobeUiState = copy(pickerFilter = filter)
 
-    /** Opens the builder on the new-look draft, never on a saved look. */
-    fun openBuilder(): WardrobeUiState = copy(screen = Screen.BUILDER, editing = null)
+    /** Opens the builder on the new-look draft, never on a saved look. Each visit starts the picker on All. */
+    fun openBuilder(): WardrobeUiState = copy(screen = Screen.BUILDER, editing = null, pickerFilter = null)
 
     /** Leaves for wherever the builder was opened from, asking first if changes to a saved look would be lost. */
     fun requestLeaveBuilder(): WardrobeUiState =
         if (hasEditToLose) copy(pendingDiscard = PendingDiscard.LEAVE_LOOK) else leaveBuilder()
 
-    private fun leaveBuilder() = copy(screen = parentScreen, pickerOpen = false, editing = null)
+    private fun leaveBuilder() = copy(screen = parentScreen, pickerOpen = false, editing = null, saveNotice = null)
 
     fun openWardrobe(): WardrobeUiState = copy(screen = Screen.WARDROBE, pickerOpen = false, detailGarmentId = null)
 
@@ -226,22 +272,16 @@ data class WardrobeUiState(
         return when {
             isInDraft(item) -> openBuilder()
             replaced.isEmpty() -> toggle(item).openBuilder()
-            else -> copy(pendingStyle = PendingStyle(item, replaced))
+            else -> copy(pendingReplacement = PendingReplacement(item, replaced, openBuilder = true))
         }
     }
-
-    fun confirmStylePiece(): WardrobeUiState {
-        val pending = pendingStyle ?: return this
-        return copy(pendingStyle = null).toggle(pending.item).openBuilder()
-    }
-
-    fun keepCurrentLook(): WardrobeUiState = copy(pendingStyle = null)
 
     /** The builder and the garment form return to the page they were opened from. */
     private val parentScreen: Screen
         get() = if (detailGarmentId != null) Screen.GARMENT_DETAILS else Screen.WARDROBE
 
-    fun openPicker(filter: GarmentCategory? = null): WardrobeUiState =
+    /** Reopens on the category last chosen in this builder visit, unless a shortcut names one. */
+    fun openPicker(filter: GarmentCategory? = pickerFilter): WardrobeUiState =
         copy(pickerOpen = true, pickerFilter = filter)
 
     fun closePicker(): WardrobeUiState = copy(pickerOpen = false)
@@ -251,7 +291,8 @@ data class WardrobeUiState(
     fun removeUnknownPieces(): WardrobeUiState = withBuilderIds(builderIds - unknownDraftIds.toSet())
 
     /** Opens [look] for editing. A new-look draft in progress waits untouched, so there's nothing to confirm. */
-    fun openLook(look: SavedLook): WardrobeUiState = copy(editing = LookEdit(look), screen = Screen.BUILDER)
+    fun openLook(look: SavedLook): WardrobeUiState =
+        copy(editing = LookEdit(look), screen = Screen.BUILDER, pickerFilter = null, saveNotice = null)
 
     /** Puts an edited look's saved pieces back. The saved record never changed. */
     fun restoreSavedLook(): WardrobeUiState = copy(editing = editing?.let { LookEdit(it.look) })
@@ -274,22 +315,31 @@ data class WardrobeUiState(
 
     private fun startNew() = copy(draftIds = emptyList()).openBuilder()
 
-    fun openSaveSheet(): WardrobeUiState =
-        if (!canSaveDraft) this else copy(saveSheet = SaveSheetState(name = defaultName(SaveMode.NEW)))
+    /** A saved look starts as a new variation, with its own name ready if the user switches to updating it. */
+    fun openSaveSheet(): WardrobeUiState {
+        if (!canSaveDraft) return this
+        val opened = openedLook
+        val newName = opened?.let { nextVariationName(it.name, savedLooks.map { look -> look.name }) }.orEmpty()
+        return copy(saveSheet = SaveSheetState(newName = newName, updateName = opened?.name.orEmpty()))
+    }
 
     fun closeSaveSheet(): WardrobeUiState =
         if (saveSheet?.saving == true) this else copy(saveSheet = null)
 
-    fun setSaveName(name: String): WardrobeUiState =
-        copy(saveSheet = saveSheet?.copy(name = name, error = null))
+    /** Changes only the current mode's name. */
+    fun setSaveName(name: String): WardrobeUiState = copy(
+        saveSheet = saveSheet?.takeUnless { it.saving }?.let { sheet ->
+            val named = if (sheet.mode == SaveMode.UPDATE) sheet.copy(updateName = name) else sheet.copy(newName = name)
+            named.copy(nameEdited = true, error = null)
+        } ?: saveSheet,
+    )
 
     fun setSaveMode(mode: SaveMode): WardrobeUiState =
-        copy(saveSheet = saveSheet?.copy(mode = mode, name = defaultName(mode), error = null))
+        copy(saveSheet = saveSheet?.takeUnless { it.saving }?.copy(mode = mode, error = null) ?: saveSheet)
 
-    private fun defaultName(mode: SaveMode): String {
-        val opened = openedLook ?: return ""
-        return if (mode == SaveMode.UPDATE) opened.name else nextVariationName(opened.name, savedLooks.map { it.name })
-    }
+    fun clearSaveNotice(): WardrobeUiState = copy(saveNotice = null)
+
+    fun lookRevealed(): WardrobeUiState = copy(revealLookId = null)
 
     fun requestDeleteLook(look: SavedLook): WardrobeUiState = copy(pendingLookDelete = PendingLookDelete(look))
 
@@ -317,6 +367,12 @@ data class WardrobeUiState(
         draftIds = if (editing == null) emptyList() else draftIds,
         editing = LookEdit(look),
         saveSheet = null,
+        revealLookId = look.id,
+        saveNotice = when {
+            editing == null -> SaveNotice.LOOK_SAVED
+            look.id == editing.look.id -> SaveNotice.CHANGES_SAVED
+            else -> SaveNotice.VARIATION_SAVED
+        },
     )
 
     fun saveFailed(message: String): WardrobeUiState = copy(saveSheet = saveSheet?.copy(saving = false, error = message))

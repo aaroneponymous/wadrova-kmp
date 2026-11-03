@@ -156,7 +156,7 @@ private fun ItemsView(
                 GarmentCard(
                     item,
                     state,
-                    onToggle = if (archivedMode) null else ({ update { it.toggle(item) } }),
+                    onToggle = if (archivedMode) null else ({ update { it.requestToggle(item) } }),
                     onEdit = if (item.isSample) null else ({ update { it.openEditGarment(item) } }),
                     onOpen = { update { it.openGarmentDetails(item) } },
                 )

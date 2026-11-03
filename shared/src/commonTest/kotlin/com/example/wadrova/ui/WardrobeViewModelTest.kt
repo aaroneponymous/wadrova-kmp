@@ -50,7 +50,8 @@ class WardrobeViewModelTest {
         override suspend fun update(id: String, name: String, garmentIds: List<String>): SavedLook {
             updates++
             failure?.let { throw it }
-            return SavedLook(id, name, garmentIds, 1, 2)
+            val created = looks.first { it.id == id }.createdAtMillis
+            return SavedLook(id, name, garmentIds, created, 2).also { updated -> looks = listOf(updated) + looks.filter { it.id != id } }
         }
 
         var deletes = 0
@@ -258,6 +259,100 @@ class WardrobeViewModelTest {
         assertEquals(0, repository.creates)
         assertEquals("a", viewModel.state.openedLook?.id)
         assertEquals(1, viewModel.state.savedLooks.size)
+    }
+
+    @Test
+    fun aFailedSaveKeepsTheNamesModeAndEditsForARetry() {
+        val look = SavedLook("a", "Monday", listOf(shirt.garment.id), 1, 1)
+        val repository = FakeRepository(listOf(look))
+        val viewModel = WardrobeViewModel(repository, FakeGarmentRepository(), FakePhotoStore())
+        viewModel.update { it.openLook(look).toggle(tote).openSaveSheet().setSaveName("Weekend") }
+        viewModel.update { it.setSaveMode(SaveMode.UPDATE).setSaveName("Monday, bag") }
+        repository.failure = IllegalStateException()
+        viewModel.save()
+
+        val failed = viewModel.state
+        assertEquals(SaveSheetState("Weekend", "Monday, bag", SaveMode.UPDATE, saving = false, error = failed.saveSheet?.error, nameEdited = true), failed.saveSheet)
+        assertTrue(failed.saveSheet?.error != null)
+        assertEquals(listOf(shirt.garment.id, tote.garment.id), failed.builderIds)
+        assertNull(failed.saveNotice)
+        assertEquals(listOf(look), repository.looks)
+
+        repository.failure = null
+        viewModel.save()
+        assertNull(viewModel.state.saveSheet)
+        assertEquals(SaveNotice.CHANGES_SAVED, viewModel.state.saveNotice)
+        assertEquals("Monday, bag", repository.looks.single().name)
+    }
+
+    @Test
+    fun theNoticeMatchesWhatWasSaved() {
+        val repository = FakeRepository()
+        val viewModel = WardrobeViewModel(repository, FakeGarmentRepository(), FakePhotoStore())
+        viewModel.update { it.toggle(shirt).openBuilder() }
+        viewModel.saveDraft("Monday")
+        assertEquals(SaveNotice.LOOK_SAVED, viewModel.state.saveNotice)
+        val created = viewModel.state.openedLook!!
+
+        viewModel.update { it.clearSaveNotice().toggle(tote).openSaveSheet().setSaveMode(SaveMode.UPDATE) }
+        viewModel.save()
+        assertEquals(SaveNotice.CHANGES_SAVED, viewModel.state.saveNotice)
+        assertEquals(created.id, viewModel.state.openedLook?.id)
+
+        viewModel.update { it.clearSaveNotice().toggle(item("silk-scarf")).openSaveSheet() }
+        viewModel.save()
+        assertEquals(SaveNotice.VARIATION_SAVED, viewModel.state.saveNotice)
+        assertEquals("Monday — Variation", viewModel.state.openedLook?.name)
+        assertTrue(viewModel.state.openedLook?.id != created.id)
+
+        assertNull(viewModel.state.requestLeaveBuilder().saveNotice)
+    }
+
+    @Test
+    fun noNoticeOrRecordUntilTheRepositoryFinishes() {
+        val gate = CompletableDeferred<Unit>()
+        val repository = FakeRepository().apply { this.gate = gate }
+        val viewModel = WardrobeViewModel(repository, FakeGarmentRepository(), FakePhotoStore())
+        viewModel.update { it.toggle(shirt) }
+        viewModel.saveDraft("Monday")
+        assertNull(viewModel.state.saveNotice)
+        assertTrue(viewModel.state.savedLooks.isEmpty())
+        gate.complete(Unit)
+        assertEquals(SaveNotice.LOOK_SAVED, viewModel.state.saveNotice)
+    }
+
+    @Test
+    fun theSavedLooksListMatchesTheRepositoryAfterNewUpdateAndVariation() {
+        val existing = SavedLook("a", "Monday", listOf(shirt.garment.id), 1, 1)
+        val repository = FakeRepository(listOf(existing))
+        val viewModel = WardrobeViewModel(repository, FakeGarmentRepository(), FakePhotoStore())
+
+        viewModel.update { it.toggle(item("wide-trousers")).openBuilder() }
+        viewModel.saveDraft("Tuesday")
+        viewModel.update { it.requestLeaveBuilder().openLook(existing).toggle(tote).openSaveSheet().setSaveMode(SaveMode.UPDATE) }
+        viewModel.save()
+        viewModel.update { it.toggle(item("silk-scarf")).openSaveSheet() }
+        viewModel.save()
+
+        val shown = viewModel.state.savedLooks
+        assertEquals(shown.first().id, viewModel.state.revealLookId)
+        assertNull(viewModel.state.lookRevealed().revealLookId)
+        assertEquals(repository.looks, shown)
+        assertEquals(listOf("Monday — Variation", "Monday", "Tuesday"), shown.map { it.name })
+        assertEquals(listOf(shirt.garment.id, tote.garment.id), shown.first { it.id == "a" }.garmentIds)
+        assertEquals(shown.map { it.id }.distinct(), shown.map { it.id })
+
+        // Each card's preview reads the look's current pieces.
+        val state = viewModel.state
+        assertEquals(listOf(shirt, tote, item("silk-scarf")), state.itemsFor(shown[0]))
+        assertEquals(listOf(shirt, tote), state.itemsFor(shown[1]))
+        assertEquals(listOf(item("wide-trousers")), state.itemsFor(shown[2]))
+
+        viewModel.loadRecords()
+        assertEquals(shown, viewModel.state.savedLooks)
+        val reopened = viewModel.state.requestLeaveBuilder().openLook(shown[1])
+        assertEquals("a", reopened.openedLook?.id)
+        assertEquals(listOf(shirt.garment.id, tote.garment.id), reopened.builderIds)
     }
 
     private val mondayLook = SavedLook("a", "Monday", listOf("poplin-shirt"), 1, 1)

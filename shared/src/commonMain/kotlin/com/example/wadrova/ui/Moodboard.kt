@@ -3,17 +3,24 @@ package com.example.wadrova.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.wadrova.data.PhotoSize
 import com.example.wadrova.domain.GarmentCategory
@@ -154,6 +161,78 @@ private fun placeRows(pieces: List<MoodPiece>, indices: List<Int>, top: Float, m
         y += rowHeight + GAP
     }
     return y - GAP
+}
+
+/**
+ * The pieces a small preview shows, as indices in the order given: the lead first (a dress or a
+ * coat), then the top and bottoms, then shoes, then an accessory, until [max] are chosen.
+ */
+internal fun previewSelection(categories: List<GarmentCategory>, max: Int): List<Int> =
+    categories.indices.sortedBy { heroOrder.indexOf(categories[it]) }.take(max).sorted()
+
+/**
+ * [pieces] laid out as on the full moodboard, then scaled and centred to fill a canvas
+ * [aspect] times as tall as it is wide. Positions stay fractions of the canvas width.
+ */
+internal fun previewLayout(pieces: List<MoodPiece>, aspect: Float): List<MoodSlot> {
+    val slots = moodboardLayout(pieces).slots
+    if (slots.isEmpty()) return slots
+    val left = slots.minOf { it.x }
+    val top = slots.minOf { it.y }
+    val width = slots.maxOf { it.x + it.width } - left
+    val height = slots.maxOf { it.y + it.height } - top
+    val scale = minOf(1f / width, aspect / height)
+    val dx = (1f - width * scale) / 2 - left * scale
+    val dy = (aspect - height * scale) / 2 - top * scale
+    return slots.map { MoodSlot(dx + it.x * scale, dy + it.y * scale, it.width * scale, it.height * scale) }
+}
+
+/** Cards narrower than this inside their padding show three pieces instead of four. */
+private val ROOMY_PREVIEW = 130.dp
+
+/**
+ * A saved look's card image: the moodboard's composition for its most telling pieces, filling a
+ * 4:5 canvas. When pieces are left out, a "+N" marker says so; the look itself shows them all.
+ */
+@Composable
+internal fun MoodboardPreview(items: List<WardrobeItem>, modifier: Modifier = Modifier) {
+    BoxWithConstraints(
+        modifier
+            .fillMaxWidth()
+            .aspectRatio(4f / 5f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(WadrovaColors.Sand)
+            .padding(12.dp),
+    ) {
+        val max = if (maxWidth >= ROOMY_PREVIEW) 4 else 3
+        val shown = remember(items, max) { previewSelection(items.map { it.garment.category }, max).map { items[it] } }
+        val aspect = maxHeight / maxWidth
+        val slots = remember(shown, aspect) { previewLayout(shown.map { it.moodPiece }, aspect) }
+        val unit = maxWidth
+        shown.zip(slots).forEach { (item, slot) ->
+            key(item.garment.id) {
+                GarmentVisual(
+                    item,
+                    Modifier.offset(unit * slot.x, unit * slot.y).size(unit * slot.width, unit * slot.height),
+                    trimIllustration = true,
+                )
+            }
+        }
+        val hidden = items.size - shown.size
+        if (hidden > 0) {
+            Text(
+                "+$hidden",
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .clip(CircleShape)
+                    .background(WadrovaColors.Warm.copy(alpha = 0.92f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .semantics { contentDescription = "$hidden more ${if (hidden == 1) "piece" else "pieces"} in this look" },
+                style = MaterialTheme.typography.labelLarge,
+                color = WadrovaColors.Charcoal,
+            )
+        }
+    }
 }
 
 /**

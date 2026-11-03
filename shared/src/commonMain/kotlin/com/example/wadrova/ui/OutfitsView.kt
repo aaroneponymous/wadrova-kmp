@@ -7,9 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,6 +24,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +50,14 @@ fun OutfitsView(
     grid: LazyGridState,
 ) {
     val looks = state.savedLooks
+    // The grid keeps its scroll position, which would leave a look saved meanwhile out of sight.
+    state.revealLookId?.let { id ->
+        LaunchedEffect(id) {
+            val index = looks.indexOfFirst { it.id == id }
+            if (index >= 0) grid.scrollToItem(index)
+            update { it.lookRevealed() }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         if (state.looksStatus == LooksStatus.READY && looks.isNotEmpty()) {
             Text(
@@ -138,7 +145,8 @@ private fun OutfitCard(state: WardrobeUiState, look: SavedLook, onOpen: () -> Un
 
     Column(Modifier.clickable(role = Role.Button, onClick = onOpen)) {
         Box {
-            OutfitPreview(state.itemsFor(look))
+            val items = state.itemsFor(look)
+            if (items.isEmpty()) PiecesUnavailable() else MoodboardPreview(items)
             OutfitMenu(look.name, onDelete, Modifier.align(Alignment.TopEnd))
         }
         Text(
@@ -201,37 +209,22 @@ private fun OutfitMenu(name: String, onDelete: () -> Unit, modifier: Modifier = 
     }
 }
 
-/** The look's own garment images: one main piece, with up to two more beside it. */
+/** A look none of whose pieces are in the wardrobe any more. */
 @Composable
-private fun OutfitPreview(items: List<WardrobeItem>) {
-    Row(
+private fun PiecesUnavailable() {
+    Box(
         Modifier
             .fillMaxWidth()
             .aspectRatio(4f / 5f)
             .clip(RoundedCornerShape(16.dp))
-            .background(WadrovaColors.Studio)
-            .padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .background(WadrovaColors.Sand),
+        contentAlignment = Alignment.Center,
     ) {
-        val main = items.firstOrNull()
-        if (main == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Pieces unavailable",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = WadrovaColors.Ink2,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        } else {
-            GarmentVisual(main, Modifier.weight(if (items.size > 1) 1.4f else 1f).fillMaxHeight())
-            if (items.size > 1) {
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items.drop(1).take(2).forEach { item ->
-                        GarmentVisual(item, Modifier.weight(1f).fillMaxWidth())
-                    }
-                }
-            }
-        }
+        Text(
+            "Pieces unavailable",
+            style = MaterialTheme.typography.bodySmall,
+            color = WadrovaColors.Ink2,
+            textAlign = TextAlign.Center,
+        )
     }
 }

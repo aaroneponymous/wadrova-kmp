@@ -170,19 +170,24 @@ fun App(createRepositories: () -> LocalRepositories) {
 
         MirrorDialogs(mirrorState, mirror)
 
-        state.pendingStyle?.let { pending ->
+        state.pendingReplacement?.let { pending ->
+            val replaced = pending.replaced.joinToString(" and ") { it.name }
+            val several = pending.replaced.size > 1
             AlertDialog(
-                onDismissRequest = { viewModel.update { it.keepCurrentLook() } },
-                title = { Text("Replace pieces in your look?") },
+                onDismissRequest = { viewModel.update { it.cancelReplacement() } },
+                title = { Text("Replace $replaced with ${pending.item.name}?") },
                 text = {
-                    val replaced = pending.replaced.joinToString(" and ") { it.name }
-                    Text("Adding ${pending.item.name} to your current look replaces $replaced.")
+                    Text(
+                        if (several) "They'll come out of this look but stay in your wardrobe." else "It'll come out of this look but stay in your wardrobe.",
+                    )
                 },
                 confirmButton = {
-                    TextButton(onClick = { viewModel.update { it.confirmStylePiece() } }) { Text("Replace") }
+                    TextButton(onClick = { viewModel.update { it.confirmReplacement() } }) {
+                        Text(if (several) "Replace pieces" else "Replace piece")
+                    }
                 },
                 dismissButton = {
-                    TextButton(onClick = { viewModel.update { it.keepCurrentLook() } }) { Text("Keep current look") }
+                    TextButton(onClick = { viewModel.update { it.cancelReplacement() } }) { Text("Cancel") }
                 },
             )
         }

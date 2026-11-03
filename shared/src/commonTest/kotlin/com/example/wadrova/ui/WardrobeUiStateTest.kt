@@ -181,12 +181,12 @@ class WardrobeUiStateTest {
         val asking = draft.requestStylePiece(item("slip-dress"))
         assertEquals(Screen.WARDROBE, asking.screen)
         assertEquals(draft.draftIds, asking.draftIds)
-        assertEquals(listOf(item("poplin-shirt"), item("straight-jeans")), asking.pendingStyle?.replaced)
+        assertEquals(listOf(item("poplin-shirt"), item("straight-jeans")), asking.pendingReplacement?.replaced)
 
-        assertEquals(draft.draftIds, asking.keepCurrentLook().draftIds)
-        assertEquals(null, asking.keepCurrentLook().pendingStyle)
+        assertEquals(draft.draftIds, asking.cancelReplacement().draftIds)
+        assertEquals(null, asking.cancelReplacement().pendingReplacement)
 
-        val confirmed = asking.confirmStylePiece()
+        val confirmed = asking.confirmReplacement()
         assertEquals(Screen.BUILDER, confirmed.screen)
         assertEquals(listOf("slip-dress"), confirmed.draftIds)
     }
@@ -195,7 +195,7 @@ class WardrobeUiStateTest {
     fun stylingWithAnUneditedSavedLookOpenStartsANewLook() {
         val opened = initial.copy(savedLooks = listOf(savedLook)).openLook(savedLook).requestLeaveBuilder()
         val state = opened.requestStylePiece(item("everyday-tee"))
-        assertEquals(null, state.pendingStyle)
+        assertEquals(null, state.pendingReplacement)
         assertEquals(null, state.openedLook)
         assertEquals(listOf("everyday-tee"), state.draftIds)
     }
@@ -239,7 +239,7 @@ class WardrobeUiStateTest {
         val state = initial.toggle(item("everyday-tee"))
             .openGarmentDetails(item("poplin-shirt"))
             .requestStylePiece(item("poplin-shirt"))
-            .confirmStylePiece()
+            .confirmReplacement()
         assertEquals(Screen.BUILDER, state.screen)
         assertEquals(Screen.GARMENT_DETAILS, state.requestLeaveBuilder().screen)
     }
@@ -344,5 +344,149 @@ class WardrobeUiStateTest {
         val archived = item("poplin-shirt").copy(archived = true)
         val state = WardrobeUiState(listOf(archived))
         assertEquals(state, state.requestStylePiece(archived))
+    }
+
+    @Test
+    fun aConflictingPickAsksAndCancelKeepsTheWholeLook() {
+        val look = initial.toggle(item("everyday-tee")).toggle(item("wide-trousers")).toggle(item("leather-tote")).openBuilder()
+        val asking = look.requestToggle(item("poplin-shirt"))
+        assertEquals(PendingReplacement(item("poplin-shirt"), listOf(item("everyday-tee"))), asking.pendingReplacement)
+        assertEquals(look.builderIds, asking.builderIds)
+
+        val cancelled = asking.cancelReplacement()
+        assertEquals(null, cancelled.pendingReplacement)
+        assertEquals(look.builderIds, cancelled.builderIds)
+        assertEquals(Screen.BUILDER, cancelled.screen)
+
+        val confirmed = asking.confirmReplacement()
+        assertEquals(null, confirmed.pendingReplacement)
+        assertEquals(listOf("wide-trousers", "leather-tote", "poplin-shirt"), confirmed.builderIds)
+        assertEquals(Screen.BUILDER, confirmed.screen)
+    }
+
+    @Test
+    fun aDressNamesBothPiecesItWouldReplace() {
+        val asking = initial.toggle(item("poplin-shirt")).toggle(item("straight-jeans")).requestToggle(item("slip-dress"))
+        assertEquals(listOf(item("poplin-shirt"), item("straight-jeans")), asking.pendingReplacement?.replaced)
+        assertEquals(listOf("slip-dress"), asking.confirmReplacement().draftIds)
+    }
+
+    @Test
+    fun replacingInASavedLookChangesOnlyThatLook() {
+        val opened = initial.toggle(item("everyday-tee")).openLook(savedLook)
+        val confirmed = opened.requestToggle(item("cashmere-knit")).confirmReplacement()
+        assertEquals(listOf("cashmere-knit"), confirmed.builderIds)
+        assertEquals(listOf("everyday-tee"), confirmed.draftIds)
+        assertEquals(opened.builderIds, opened.requestToggle(item("cashmere-knit")).cancelReplacement().builderIds)
+    }
+
+    @Test
+    fun nonConflictingPiecesAreAddedWithoutAsking() {
+        val state = initial.toggle(item("poplin-shirt")).requestToggle(item("straight-jeans")).requestToggle(item("court-sneakers"))
+        assertEquals(null, state.pendingReplacement)
+        assertEquals(listOf("poplin-shirt", "straight-jeans", "court-sneakers"), state.draftIds)
+    }
+
+    @Test
+    fun accessoriesStackWithoutAsking() {
+        val state = initial.requestToggle(item("leather-tote")).requestToggle(item("silk-scarf")).requestToggle(item("felt-hat"))
+        assertEquals(null, state.pendingReplacement)
+        assertEquals(listOf("leather-tote", "silk-scarf", "felt-hat"), state.draftIds)
+    }
+
+    @Test
+    fun tappingAPieceAlreadyInTheLookRemovesOnlyIt() {
+        val dress = initial.toggle(item("slip-dress")).toggle(item("wool-coat"))
+        val removed = dress.requestToggle(item("slip-dress"))
+        assertEquals(null, removed.pendingReplacement)
+        assertEquals(listOf("wool-coat"), removed.draftIds)
+    }
+
+    @Test
+    fun stylingAPieceUsesTheSameConfirmationAndOpensTheBuilder() {
+        val draft = initial.toggle(item("everyday-tee"))
+        val asking = draft.openGarmentDetails(item("poplin-shirt")).requestStylePiece(item("poplin-shirt"))
+        assertEquals(PendingReplacement(item("poplin-shirt"), listOf(item("everyday-tee")), openBuilder = true), asking.pendingReplacement)
+        assertEquals(Screen.GARMENT_DETAILS, asking.cancelReplacement().screen)
+        assertEquals(listOf("everyday-tee"), asking.cancelReplacement().draftIds)
+        assertEquals(Screen.BUILDER, asking.confirmReplacement().screen)
+    }
+
+    @Test
+    fun thePickerReopensOnTheLastCategoryWithinOneBuilderVisit() {
+        val chosen = initial.openBuilder().openPicker().filterPicker(GarmentCategory.BOTTOM).closePicker()
+        assertEquals(GarmentCategory.BOTTOM, chosen.openPicker().pickerFilter)
+
+        assertEquals(null, chosen.requestLeaveBuilder().openBuilder().openPicker().pickerFilter)
+        assertEquals(null, chosen.requestNewOutfit().openPicker().pickerFilter)
+        assertEquals(null, chosen.requestLeaveBuilder().openLook(savedLook).openPicker().pickerFilter)
+    }
+
+    @Test
+    fun aCategoryShortcutOverridesTheRememberedCategory() {
+        val chosen = initial.openBuilder().openPicker().filterPicker(GarmentCategory.TOP).closePicker()
+        val shortcut = chosen.openPicker(GarmentCategory.ACCESSORY)
+        assertEquals(GarmentCategory.ACCESSORY, shortcut.pickerFilter)
+        assertEquals(GarmentCategory.ACCESSORY, shortcut.closePicker().openPicker().pickerFilter)
+    }
+
+    @Test
+    fun pickerIndicatorsFollowTheSavedLookNotTheSelection() {
+        val opened = initial.toggle(item("everyday-tee")).toggle(item("leather-tote")).openLook(savedLook).openPicker()
+        assertEquals(1, opened.builderPieceCount)
+        assertFalse(opened.isInDraft(item("everyday-tee")))
+        assertTrue(opened.isInDraft(item("poplin-shirt")))
+        assertEquals(listOf(item("poplin-shirt")), opened.replacedBy(item("everyday-tee")))
+
+        val confirmed = opened.requestToggle(item("everyday-tee")).confirmReplacement()
+        assertEquals(1, confirmed.builderPieceCount)
+        assertEquals(2, confirmed.requestToggle(item("silk-scarf")).builderPieceCount)
+    }
+
+    @Test
+    fun switchingSaveModesKeepsWhatWasTypedInEach() {
+        val sheet = initial.copy(savedLooks = listOf(savedLook)).openLook(savedLook).toggle(item("leather-tote")).openSaveSheet()
+        assertEquals("Quiet Monday — Variation", sheet.saveSheet?.name)
+
+        val typed = sheet.setSaveName("Weekend").setSaveMode(SaveMode.UPDATE)
+        assertEquals("Quiet Monday", typed.saveSheet?.name)
+        val renamed = typed.setSaveName("Quiet Tuesday").setSaveMode(SaveMode.NEW)
+        assertEquals("Weekend", renamed.saveSheet?.name)
+        assertEquals("Quiet Tuesday", renamed.setSaveMode(SaveMode.UPDATE).saveSheet?.name)
+    }
+
+    @Test
+    fun aMissingNameIsExplainedButOnlyFlaggedOnceTouched() {
+        val sheet = initial.toggle(item("poplin-shirt")).openBuilder().openSaveSheet()
+        assertEquals("Enter a name to save this look.", sheet.saveBlocker)
+        assertFalse(sheet.canSubmitSave)
+        assertEquals(false, sheet.saveSheet?.nameEdited)
+
+        val named = sheet.setSaveName("Monday")
+        assertEquals(null, named.saveBlocker)
+        assertTrue(named.canSubmitSave)
+
+        val cleared = named.setSaveName("  ")
+        assertEquals("Enter a name to save this look.", cleared.saveBlocker)
+        assertEquals(true, cleared.saveSheet?.nameEdited)
+    }
+
+    @Test
+    fun missingAndUnavailablePiecesAreExplained() {
+        val emptied = initial.openLook(savedLook).toggle(item("poplin-shirt"))
+        assertEquals("Add at least one piece to save.", emptied.saveBlocker)
+
+        val gone = savedLook.copy(garmentIds = listOf("poplin-shirt", "gone"))
+        val withMissing = initial.openLook(gone).toggle(item("leather-tote"))
+        assertEquals("Remove unavailable pieces before saving.", withMissing.saveBlocker)
+        assertEquals(null, withMissing.removeUnknownPieces().openSaveSheet().saveBlocker)
+    }
+
+    @Test
+    fun aLooksPreviewSkipsMissingPiecesButItsCountDoesNot() {
+        val look = savedLook.copy(garmentIds = listOf("poplin-shirt", "gone", "wide-trousers"))
+        assertEquals(listOf("poplin-shirt", "wide-trousers"), initial.itemsFor(look).map { it.garment.id })
+        assertEquals(1, initial.missingPieceCount(look))
+        assertEquals(3, look.garmentIds.size)
     }
 }
