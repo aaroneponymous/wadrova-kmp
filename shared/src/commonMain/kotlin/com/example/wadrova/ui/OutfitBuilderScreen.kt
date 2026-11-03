@@ -6,15 +6,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,7 +49,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.wadrova.data.PhotoSize
 import com.example.wadrova.domain.GarmentCategory
 
 @Composable
@@ -125,7 +121,13 @@ fun OutfitBuilderScreen(
                     onStart = { category -> update { it.openPicker(category) } },
                 )
             } else {
-                Moodboard(draft, isSaved = opened != null)
+                Moodboard(draft)
+                Text(
+                    if (opened != null) "${draft.size} ${if (draft.size == 1) "piece" else "pieces"}" else "Look in progress · ${draft.size.toString().padStart(2, '0')}",
+                    Modifier.padding(start = 4.dp, top = 10.dp),
+                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = MaterialTheme.typography.titleSmall.fontSize, lineHeight = MaterialTheme.typography.titleSmall.lineHeight),
+                    color = WadrovaColors.Ink2,
+                )
             }
             if (state.unknownDraftIds.isNotEmpty()) {
                 MissingPiecesNotice(state.unknownDraftIds.size, onRemove = { update { it.removeUnknownPieces() } })
@@ -198,68 +200,6 @@ private fun MissingPiecesNotice(count: Int, onRemove: () -> Unit) {
             color = WadrovaColors.Charcoal,
         )
         ActionButton("Remove from this look", Modifier.padding(top = 12.dp), onClick = onRemove)
-    }
-}
-
-/** Primary pieces lead in a wide column and supporting pieces sit beside them, as in the prototype. */
-@Composable
-private fun Moodboard(draft: List<WardrobeItem>, isSaved: Boolean) {
-    val isSupport = { item: WardrobeItem ->
-        item.garment.category == GarmentCategory.FOOTWEAR || item.garment.category == GarmentCategory.ACCESSORY
-    }
-    var left = draft.filterNot(isSupport).ifEmpty { draft }
-    var right = if (left == draft) emptyList() else draft.filter(isSupport)
-    if (right.isEmpty() && left.size > 2) {
-        right = left.drop(1)
-        left = left.take(1)
-    }
-
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .aspectRatio(4f / 5f)
-            .clip(RoundedCornerShape(26.dp))
-            .background(WadrovaColors.Studio)
-            .padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-    ) {
-        Column(
-            if (right.isEmpty()) Modifier.fillMaxHeight().fillMaxWidth(0.74f) else Modifier.fillMaxHeight().weight(0.6f),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            left.forEach { MoodTile(it) }
-        }
-        if (right.isNotEmpty()) {
-            Column(Modifier.fillMaxHeight().weight(0.4f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    if (isSaved) "${draft.size} pieces" else "Look in progress · ${draft.size.toString().padStart(2, '0')}",
-                    Modifier.padding(start = 4.dp, top = 8.dp),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = MaterialTheme.typography.titleSmall.fontSize, lineHeight = MaterialTheme.typography.titleSmall.lineHeight),
-                    color = WadrovaColors.Ink2,
-                )
-                right.forEach { MoodTile(it) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ColumnScope.MoodTile(item: WardrobeItem) {
-    val weight = when (item.garment.category) {
-        GarmentCategory.DRESS -> 8f
-        GarmentCategory.FOOTWEAR -> 4f
-        GarmentCategory.ACCESSORY -> 3f
-        else -> 5f
-    }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .weight(weight)
-            .clip(RoundedCornerShape(18.dp))
-            .background(WadrovaColors.Warm)
-            .padding(10.dp),
-    ) {
-        GarmentVisual(item, Modifier.fillMaxSize(), PhotoSize.DISPLAY)
     }
 }
 
