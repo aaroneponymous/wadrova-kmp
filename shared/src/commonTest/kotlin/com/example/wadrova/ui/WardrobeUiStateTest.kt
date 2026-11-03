@@ -5,13 +5,15 @@ import com.example.wadrova.domain.SavedLook
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WardrobeUiStateTest {
 
-    private fun item(id: String) = sampleWardrobe.first { it.garment.id == id }
+    private fun item(id: String) = testWardrobe.first { it.garment.id == id }
 
-    private val initial = WardrobeUiState(sampleWardrobe)
+    private val initial = WardrobeUiState(testWardrobe)
 
     @Test
     fun togglingAddsAndRemovesAPiece() {
@@ -71,7 +73,7 @@ class WardrobeUiStateTest {
 
     @Test
     fun filtersSelectOnlyTheirCategoryAndNullSelectsEverything() {
-        assertEquals(sampleWardrobe, initial.itemsIn(null))
+        assertEquals(testWardrobe, initial.itemsIn(null))
         assertTrue(initial.itemsIn(GarmentCategory.DRESS).all { it.garment.category == GarmentCategory.DRESS })
         assertEquals(2, initial.itemsIn(GarmentCategory.DRESS).size)
     }
@@ -488,5 +490,38 @@ class WardrobeUiStateTest {
         assertEquals(listOf("poplin-shirt", "wide-trousers"), initial.itemsFor(look).map { it.garment.id })
         assertEquals(1, initial.missingPieceCount(look))
         assertEquals(3, look.garmentIds.size)
+    }
+
+    @Test
+    fun anEmptyWardrobeOffersNothingToPick() {
+        val empty = WardrobeUiState(emptyList()).openBuilder().openPicker()
+        assertEquals(emptyList(), empty.itemsIn(null))
+        assertEquals(emptyList(), empty.itemsIn(GarmentCategory.TOP))
+        assertFalse(empty.canSaveDraft)
+        assertEquals("Add at least one piece to save.", empty.saveBlocker)
+    }
+
+    @Test
+    fun addingTheFirstPieceFromAnEmptyPickerLeavesTheBuilderForTheForm() {
+        val next = WardrobeUiState(emptyList()).openBuilder().openPicker().requestAddFirstPiece()
+        assertEquals(Screen.GARMENT_FORM, next.screen)
+        assertFalse(next.pickerOpen)
+        assertNull(next.editing)
+        assertNotNull(next.garmentForm)
+    }
+
+    @Test
+    fun addingTheFirstPieceAsksBeforeDroppingChangesToASavedLook() {
+        val look = SavedLook("a", "Monday", listOf("poplin-shirt", "gone"), 1, 1)
+        val editing = WardrobeUiState(emptyList(), savedLooks = listOf(look)).openLook(look)
+        val changed = editing.removeUnknownPieces().openPicker().requestAddFirstPiece()
+        assertEquals(PendingDiscard.LEAVE_LOOK, changed.pendingDiscard)
+        assertEquals(Screen.BUILDER, changed.screen)
+        assertNotNull(changed.editing)
+
+        val unchanged = editing.openPicker().requestAddFirstPiece()
+        assertEquals(Screen.GARMENT_FORM, unchanged.screen)
+        assertNull(unchanged.editing)
+        assertEquals(emptyList(), unchanged.draftIds)
     }
 }

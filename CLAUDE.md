@@ -16,7 +16,7 @@ In this repo:
   - `data/`: SQLDelight repositories, photo and generated-image stores, the Mirror backend client (Ktor).
   - `ui/`: Compose screens plus their state. `App.kt` wires tabs, screens and global dialogs.
 - `shared/src/commonMain/sqldelight/`: `.sq` schemas and `1.sqm`–`3.sqm` migrations (database version 4).
-- `shared/src/commonMain/composeResources/`: fonts (Manrope, Instrument Serif) and generated brand vectors.
+- `shared/src/commonMain/composeResources/`: fonts (Manrope, Instrument Serif), generated brand vectors and the splash Lottie files (`files/`).
 - `shared/src/{androidMain,iosMain}/`: photo stores, photo pickers, back handling, database drivers.
 - `androidApp/`, `iosApp/`: thin platform entry points. `mirror_backend/`: local FastAPI server for Mirror (see its README).
 - `tools/brand/generate_brand_assets.py`: regenerates every derived brand file from `../wadrova-brand-svg/`.
@@ -30,7 +30,7 @@ In this repo:
 - Destructive or replacing actions confirm first through a `pending*` state field rendered as a dialog. Repeated submissions are blocked by a `saving`/`deleting` flag set before suspending.
 - Repositories validate and write in one transaction; failures keep the user's form or draft so they can retry. Success is reported only after persistence.
 - Design tokens are in `ui/Theme.kt` (`WadrovaColors`, typography). Reuse `ActionButton`, `GarmentCard`, `CategoryChips`, `GarmentVisual` and `Moodboard` before adding new components.
-- Brand marks come only from `WadrovaLockup` / `WadrovaSymbol` in `ui/Brand.kt`. Never redraw the logo or edit the generated XML; rerun the generator.
+- Brand marks come only from `WadrovaLockup` / `WadrovaSymbol` in `ui/Brand.kt`, and motion only from the official Lottie files (the splash plays through `BrandSplash`). Never redraw the logo or edit the generated XML; rerun the generator.
 - Match the surrounding code: short KDoc on non-obvious decisions, no new modules, layers or dependencies without a current need.
 - Schema changes need a new `.sqm` migration and a `SchemaMigrationTest` case.
 
@@ -49,13 +49,13 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug 
 python3 tools/brand/generate_brand_assets.py                       # after brand collection changes; needs rsvg-convert
 ```
 
-Android touch checks in past milestones used the `Pixel_9_Pro` AVD started with `-no-snapshot-save`, so test data is discarded on shutdown. If Gradle reports a missing resource right after moving or renaming one, rerun with `--rerun --no-build-cache`.
+Android touch checks in past milestones used the `Pixel_9_Pro` AVD started with `-no-snapshot-save`. That only skips the RAM snapshot: installed apps and their data persist across restarts. Replay the brand splash with `adb shell am start -n com.example.wadrova/.MainActivity --ez replayIntro true`. If Gradle reports a missing resource right after moving or renaming one, rerun with `--rerun --no-build-cache`.
 
 ## Privacy, credentials and local data
 
 - Never print, log, commit or copy `.env` values, the OpenAI key or the `X-Wadrova-Dev-Token`. The app stores the token in its local database `app_setting` table, so never dump that table.
 - Never make OpenAI or other paid API calls unless the user explicitly asks. Mirror's live generation is off unless enabled in the backend's `.env`.
-- Wardrobes, photos and databases on the user's devices are private. Test with isolated data (cleared emulator app, sample pieces, synthetic images). Don't copy them off a device without explicit permission, and delete any copy afterwards.
+- Wardrobes, photos and databases on the user's devices are private. Test with isolated data (cleared emulator app, synthetic garments and images). Don't copy them off a device without explicit permission, and delete any copy afterwards.
 - Personal images leave the device only through Mirror, after an explicit consent dialog.
 - Keep `com.example.wadrova` as the application ID unless asked.
 

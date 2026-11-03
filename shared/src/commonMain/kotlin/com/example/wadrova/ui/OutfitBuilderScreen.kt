@@ -411,7 +411,9 @@ private fun GarmentPickerSheet(state: WardrobeUiState, update: ((WardrobeUiState
                     color = WadrovaColors.Ink2,
                 )
             }
-            CategoryChips(state.availableItems, state.pickerFilter) { filter -> update { it.filterPicker(filter) } }
+            if (state.availableItems.isNotEmpty()) {
+                CategoryChips(state.availableItems, state.pickerFilter) { filter -> update { it.filterPicker(filter) } }
+            }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -424,7 +426,12 @@ private fun GarmentPickerSheet(state: WardrobeUiState, update: ((WardrobeUiState
                 }
                 if (visible.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        WardrobeEmptyState(state.pickerFilter, onViewAll = { update { it.filterPicker(null) } })
+                        val wardrobeEmpty = state.availableItems.isEmpty()
+                        WardrobeEmptyState(
+                            if (wardrobeEmpty) null else state.pickerFilter,
+                            onViewAll = { update { it.filterPicker(null) } },
+                            onAdd = if (wardrobeEmpty) ({ update { it.requestAddFirstPiece() } }) else null,
+                        )
                     }
                 }
             }

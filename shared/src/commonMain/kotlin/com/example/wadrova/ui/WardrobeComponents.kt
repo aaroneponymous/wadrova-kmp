@@ -42,8 +42,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import com.example.wadrova.domain.GarmentCategory
 
 /** A bold title with a trailing editorial italic accent, the prototype's signature heading. */
@@ -208,14 +206,6 @@ fun GarmentCard(
                     )
                 }
             }
-            if (item.isSample) {
-                Text(
-                    "Sample".uppercase(),
-                    Modifier.align(Alignment.BottomEnd).padding(10.dp),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.14.em),
-                    color = WadrovaColors.Ink2,
-                )
-            }
         }
         Text(
             item.name,
@@ -236,9 +226,9 @@ fun GarmentCard(
     }
 }
 
-/** Shown when a wardrobe or a filtered category has nothing to display. */
+/** Shown when a wardrobe or a filtered category has nothing to display. With [onAdd], an empty wardrobe offers its first piece. */
 @Composable
-fun WardrobeEmptyState(filter: GarmentCategory?, onViewAll: () -> Unit, modifier: Modifier = Modifier) {
+fun WardrobeEmptyState(filter: GarmentCategory?, onViewAll: () -> Unit, modifier: Modifier = Modifier, onAdd: (() -> Unit)? = null) {
     Column(
         modifier
             .fillMaxWidth()
@@ -273,6 +263,9 @@ fun WardrobeEmptyState(filter: GarmentCategory?, onViewAll: () -> Unit, modifier
             ) {
                 Text("View all", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Charcoal)
             }
+        }
+        if (filter == null && onAdd != null) {
+            ActionButton("Add a piece", Modifier.padding(top = 20.dp), dark = true, onClick = onAdd)
         }
     }
 }

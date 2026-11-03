@@ -1,5 +1,6 @@
 package com.example.wadrova.data
 
+import app.cash.sqldelight.db.SqlDriver
 import com.example.wadrova.domain.Garment
 import com.example.wadrova.domain.GarmentCategory
 import kotlin.test.AfterTest
@@ -21,7 +22,15 @@ class SavedLookRepositoryTest {
     )
     private lateinit var repository: SavedLookRepository
 
-    private fun open(): SavedLookRepository = SqlDelightSavedLookRepository(openTestDatabase(databaseName), garments)
+    private fun open(): SavedLookRepository = SqlDelightSavedLookRepository(withGarments(openTestDatabase(databaseName)))
+
+    /** A look can only hold garments the user has, so the test pieces are stored first. */
+    private fun withGarments(driver: SqlDriver): SqlDriver = driver.also {
+        val queries = WadrovaDatabase(it).garmentQueries
+        garments.filter { garment -> queries.selectGarment(garment.id).executeAsOneOrNull() == null }.forEach { garment ->
+            queries.insertGarment(garment.id, garment.id, garment.category.name, "Black", null, null, 0, 0, null)
+        }
+    }
 
     @BeforeTest
     fun setUp() {
@@ -107,7 +116,7 @@ class SavedLookRepositoryTest {
     fun deletingLeavesNoOrphanedPieceRows() = runTest {
         repository.close()
         val driver = openTestDatabase(databaseName)
-        repository = SqlDelightSavedLookRepository(driver, garments)
+        repository = SqlDelightSavedLookRepository(withGarments(driver))
         val look = repository.create("Monday", listOf("shirt", "bag"))
         repository.delete(look.id)
         assertEquals(emptyList(), WadrovaDatabase(driver).savedLookQueries.selectLookGarments().executeAsList())
@@ -126,7 +135,7 @@ class SavedLookRepositoryTest {
         val driver = openTestDatabase(databaseName)
         // An orphan row makes the look row insert succeed and its garment insert fail.
         WadrovaDatabase(driver).savedLookQueries.insertLookGarment("same-id", "shirt", 0)
-        repository = SqlDelightSavedLookRepository(driver, garments, newId = { "same-id" })
+        repository = SqlDelightSavedLookRepository(withGarments(driver), newId = { "same-id" })
         assertFails { repository.create("Monday", listOf("shirt")) }
         assertEquals(emptyList(), repository.getAll())
     }

@@ -378,11 +378,20 @@ data class WardrobeUiState(
     fun saveFailed(message: String): WardrobeUiState = copy(saveSheet = saveSheet?.copy(saving = false, error = message))
 
     fun withUserGarments(garments: List<UserGarment>): WardrobeUiState =
-        copy(items = garments.map { it.toWardrobeItem() } + items.filter { it.isSample })
+        copy(items = garments.map { it.toWardrobeItem() })
 
     fun showArchivedPieces(show: Boolean): WardrobeUiState = copy(showArchived = show)
 
     fun openAddGarment(): WardrobeUiState = copy(screen = Screen.GARMENT_FORM, garmentForm = GarmentFormState())
+
+    /**
+     * From the builder's picker when there's nothing to pick: leaves the builder the usual way, so a
+     * saved look's changes are confirmed first and never carried out of it, then opens the garment form.
+     */
+    fun requestAddFirstPiece(): WardrobeUiState {
+        val left = copy(pickerOpen = false).requestLeaveBuilder()
+        return if (left.pendingDiscard != null) left else left.openAddGarment()
+    }
 
     /** A piece in a look can't change category, because that could break the look's composition. */
     fun openEditGarment(item: WardrobeItem): WardrobeUiState {
@@ -456,9 +465,8 @@ class WardrobeViewModel(
     private val repository: SavedLookRepository,
     private val garmentRepository: GarmentRepository,
     private val photos: GarmentPhotoStore,
-    items: List<WardrobeItem> = sampleWardrobe,
 ) : ViewModel() {
-    var state by mutableStateOf(WardrobeUiState(items))
+    var state by mutableStateOf(WardrobeUiState(items = emptyList()))
         private set
 
     init {

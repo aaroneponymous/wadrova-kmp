@@ -1,4 +1,4 @@
--- User-created garments. Sample garments stay in code and are never stored here.
+-- The user's garments: the only garments the app has.
 CREATE TABLE user_garment (
     id TEXT NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,

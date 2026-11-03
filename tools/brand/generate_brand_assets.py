@@ -3,7 +3,8 @@
 
 The master SVGs stay the only source: this script copies their path data unchanged and only
 places it (Android vector drawables, launcher icon layers) or rasterises it with rsvg-convert
-(legacy Android launcher PNGs, iOS app icons). Run it again whenever the collection changes:
+(legacy Android launcher PNGs, iOS app icons). Lottie files are copied byte for byte. Run it again
+whenever the collection changes:
 
     python3 tools/brand/generate_brand_assets.py [path/to/wadrova-brand-svg]
 
@@ -12,6 +13,7 @@ Requires Python 3 and rsvg-convert (Homebrew: librsvg). It never writes to the c
 
 import copy
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,8 +25,13 @@ BRAND = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT.parent / "wad
 SVG_NS = "{http://www.w3.org/2000/svg}"
 
 COMPOSE_DRAWABLES = ROOT / "shared/src/commonMain/composeResources/drawable"
+COMPOSE_FILES = ROOT / "shared/src/commonMain/composeResources/files"
 ANDROID_RES = ROOT / "androidApp/src/main/res"
 IOS_APP_ICON = ROOT / "iosApp/iosApp/Assets.xcassets/AppIcon.appiconset"
+IOS_LAUNCH_BACKGROUND = ROOT / "iosApp/iosApp/Assets.xcassets/LaunchBackground.colorset"
+
+# The in-app splash plays these unchanged. Only the light one is shown while the app is light-only.
+MOTION_FILES = ["motion/wadrova-splash-light.json", "motion/wadrova-splash-dark.json"]
 
 # Each colourway is named for the ground it sits on: "ivory" art goes on light grounds.
 SHARED_VECTORS = {
@@ -186,6 +193,16 @@ def ios_icon_svg(tile_source, symbol_colours):
     return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}">{"".join(body)}</svg>'
 
 
+def ios_colour_set(hex_colour):
+    """A single-appearance colour, so the launch screen stays Ivory in system dark mode like the app."""
+    r, g, b = (int(hex_colour[i:i + 2], 16) for i in (1, 3, 5))
+    return (
+        '{\n  "colors" : [\n    {\n      "color" : {\n        "color-space" : "srgb",\n        "components" : {\n'
+        f'          "alpha" : "1.000",\n          "blue" : "0x{b:02X}",\n          "green" : "0x{g:02X}",\n          "red" : "0x{r:02X}"\n'
+        '        }\n      },\n      "idiom" : "universal"\n    }\n  ],\n  "info" : {\n    "author" : "xcode",\n    "version" : 1\n  }\n}\n'
+    )
+
+
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
@@ -216,6 +233,13 @@ def main():
     for filename, (tile, colours) in IOS_ICONS.items():
         render(ios_icon_svg(tile, colours), 1024, IOS_APP_ICON / filename)
         print("wrote", (IOS_APP_ICON / filename).relative_to(ROOT))
+    write(IOS_LAUNCH_BACKGROUND / "Contents.json", ios_colour_set(ICON_GROUND))
+
+    COMPOSE_FILES.mkdir(parents=True, exist_ok=True)
+    for relative in MOTION_FILES:
+        out = COMPOSE_FILES / Path(relative).name
+        shutil.copyfile(BRAND / relative, out)
+        print("wrote", out.relative_to(ROOT))
 
 
 if __name__ == "__main__":

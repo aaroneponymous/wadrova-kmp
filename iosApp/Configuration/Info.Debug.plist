@@ -11,5 +11,10 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Wadrova connects to your local development backend for Mirror image generation.</string>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 </dict>
 </plist>

@@ -135,7 +135,7 @@ class SchemaMigrationTest {
 
         val driver = openTestDatabase(databaseName)
         try {
-            val looks = SqlDelightSavedLookRepository(driver, listOf(Garment("shirt", GarmentCategory.TOP)))
+            val looks = SqlDelightSavedLookRepository(driver)
             val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(), FakeGeneratedImageStore())
 
             val look = looks.getAll().single()
@@ -146,7 +146,9 @@ class SchemaMigrationTest {
 
             val added = garments.create(GarmentDetails("Field Jacket", GarmentCategory.OUTERWEAR, "Green"))
             assertEquals(listOf(added), garments.getAll())
-            assertEquals(2, looks.create("New", listOf("shirt", added.garment.id)).garmentIds.size)
+            assertEquals(listOf(added.garment.id), looks.create("New", listOf(added.garment.id)).garmentIds)
+            // The old look keeps its reference to a piece that no longer exists, shown as unavailable.
+            assertEquals(listOf("shirt", "retired-piece"), looks.getAll().first { it.id == "look-1" }.garmentIds)
         } finally {
             driver.close()
         }
@@ -162,7 +164,7 @@ class SchemaMigrationTest {
         val driver = openTestDatabase(databaseName)
         try {
             val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo")), FakeGeneratedImageStore())
-            val looks = SqlDelightSavedLookRepository(driver, listOf(Garment("shirt", GarmentCategory.TOP)))
+            val looks = SqlDelightSavedLookRepository(driver)
 
             val garment = garments.getAll().single()
             assertEquals("user-1", garment.garment.id)
@@ -191,7 +193,7 @@ class SchemaMigrationTest {
         try {
             val images = FakeGeneratedImageStore()
             val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo-1")), images)
-            val looks = SqlDelightSavedLookRepository(driver, listOf(Garment("shirt", GarmentCategory.TOP)))
+            val looks = SqlDelightSavedLookRepository(driver)
             val mirror = SqlDelightMirrorRepository(driver, images, "http://default")
 
             val garment = garments.getAll().single()

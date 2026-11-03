@@ -10,7 +10,7 @@ There is no Git remote; nothing has been pushed.
 |---|---|---|
 | `main` | `4d8bb04` | Up to the Mirror redesign. Does **not** include the Wardrobe work below. |
 | `screen-wardrobe` | `4888e98` | Completed Wardrobe and Outfit Builder checkpoint. Not merged into `main`. |
-| `feature/brand-identity-integration` | one commit on `4888e98` | Brand Identity Phase 1, committed and pending physical-iPhone approval (see below). Not merged. |
+| `feature/brand-identity-integration` | Phase 1 `fe5a92a`, then the Phase 2 splash and sample-wardrobe removal commit | Brand Identity Phase 1 and Phase 2 splash, and the sample wardrobe removed; all pending physical-iPhone checks. Not merged. |
 | `foundation`, `feature/wardrobe-outfit-builder`, `feature/openai-mirror-mvp` | older | Earlier milestones, superseded by the branches above. |
 
 ### Brand Identity Phase 1 commit (on `feature/brand-identity-integration`)
@@ -20,11 +20,32 @@ Implemented and building, pending physical-iPhone approval:
 - Changed: Android adaptive icon XML and the 10 `mipmap-*` PNGs, iOS `AppIcon.appiconset` (`Contents.json`, `app-icon-1024.png`), `PrimaryNavigation.kt` (lockup on the Home placeholder), `Theme.kt` (comment only), `CLAUDE.md` (full working guide instead of a pointer to `AGENTS.md`).
 - Deleted: the template `drawable/ic_launcher_background.xml` and `drawable-v24/ic_launcher_foreground.xml`.
 
+### Brand Phase 2 splash (committed with the sample-wardrobe removal)
+
+- New: `ui/BrandSplash.kt`, `data/BrandIntroStore.kt`, `ui/ReducedMotion.kt` and `ui/LeaveForegroundEffect.kt` with Android and iOS actuals, `composeResources/files/wadrova-splash-{light,dark}.json`, iOS `LaunchBackground.colorset`, Android `values/themes.xml` and `values-v31/themes.xml`, tests `BrandSplashTest` and `BrandIntroStoreTest`.
+- Changed: `App.kt` (splash ViewModel and overlay, `replayIntro` parameter), `LocalRepositories` and both `createLocalRepositories`, `MainActivity.kt`, `MainViewController.kt`, `AndroidManifest.xml` (theme), both iOS Info.plists (`UILaunchScreen`), `libs.versions.toml` and `shared/build.gradle.kts` (Compottie), the brand generator.
+
+### Sample wardrobe removed (committed with the Phase 2 splash)
+
+The app no longer ships sample garments. They were 15 illustrated pieces defined in code (`sampleWardrobe`), never stored in the database, so removing the code removes them from every install; nothing needed deleting.
+- **Existing data:** saved looks that used sample pieces keep those ids (no foreign key) and show them as "no longer in your wardrobe". The look can be saved again once they're removed. No database migration or cleanup runs. User garments, archived garments, photos, looks, Mirror data and settings are untouched.
+- **Removed:** `sampleWardrobe`, `WardrobeItem.isSample` and every "Sample" label or branch (card badge, Garment Details eyebrow and note, the Your Items note, Mirror's try-on filter). Also removed: the catalog parameter of `SqlDelightSavedLookRepository` (looks now validate only against stored garments) and the eight illustrations only samples used. The six category illustrations for pieces without photos stay.
+- **Empty states:**
+  - **Your Items:** Add a piece in the empty state.
+  - **Your Outfits:** unchanged.
+  - **Builder picker:** "Your collection starts here." with Add a piece, which leaves the builder the usual way (asking first about unsaved changes to a saved look) and opens the garment form.
+- **Tests:** a test-only `testGarments` fixture replaces the samples. `NoSampleWardrobeTest` covers new installs, restarts and an earlier install with mixed looks on a real database, plus state tests for the empty picker.
+- **Verified (2026-11-03):**
+  - **Builds and tests:** both builds pass; 269 host and 277 iOS simulator tests pass.
+  - **Emulator, upgrade from the Phase 1 build:** a look mixing a photographed user piece with two samples kept its user piece and photo. It showed two unavailable pieces and saved once they were removed, and the change survived a restart.
+  - **Emulator, fresh install:** empty Your Items, Your Outfits and picker; first piece added with a photo from the picker route; first look saved; both persisted across a restart. With every piece archived, the archived list is still reachable.
+  - **iOS:** builds and tests only; no Simulator interaction.
+
 ## Wardrobe and Outfit Builder (implemented)
 
 Covered by unit tests, and checked by touch on the Android emulator during development.
 
-- **Your Items:** sample pieces (labelled "Sample") and user garments; category filter chips with counts; selection for a new look; archived pieces listed separately and restorable.
+- **Your Items:** the user's garments only; category filter chips with counts (hidden while the wardrobe is empty); selection for a new look; archived pieces listed separately and restorable, also when every piece is archived. An empty wardrobe shows "Your collection starts here." with Add a piece.
 - **Garments:** add and edit with name, category, colour, brand, material and an optional photo from the system picker. Photos are stored as re-encoded display and thumbnail copies, outside cloud backups. A piece used in a saved look can't change category. Discarding an edit deletes any newly picked photo.
 - **Garment Details:** read-only page with Edit and "Style this piece".
 - **Outfit Builder:** opened from Your Items selection, Your Outfits (+ or an existing look) or Garment Details. Fixed header and Add pieces / Save look bar. Picker sheet that remembers its category within one Builder visit (category shortcuts override it).
@@ -80,25 +101,55 @@ All derived files come from `tools/brand/generate_brand_assets.py`, which reprod
 - **Symbol per platform: decided 2026-11-03.** Both platforms use the official primary symbol, with an ivory standard icon. iOS keeps its graphite dark and reversed tinted variants. The compact symbol stays available in the app only through `WadrovaSymbol` below 48 dp. Comparison sheets: `../Claude outputs/brand-phase1-verification/`.
 - **Colour tokens:** UI tokens still differ slightly from the brand palette: app Cobalt `#5966E9` vs brand `#5A60E8`, app Ivory `#FAFAF8` vs brand `#F5F4F0`.
 
-**Phase 2 (planned, not started): motion.** The six Lottie files are simple shape animations: no expressions, masks, text or images. The plan:
-- **Library:** add one Compose Multiplatform Lottie renderer (e.g. Compottie), after checking it works with Compose 1.12.2 and Kotlin 2.4.21.
-- **Native launch screens:** keep them instant with an Ivory background.
-- **Brand splash:** play it once per cold start, dismissed when the app is ready. The full animation is 4.07 s; don't hold launch for it.
-- **Reduced motion:** honour it by skipping the splash or jumping to its final frame.
+**Phase 2 (implemented and committed, pending physical-iPhone check): animated splash.** Only the splash; the logo reveal, Style Shift loop and lens pulse aren't used yet.
+- **Files:** `wadrova-splash-light.json` and `-dark.json` are Lottie 5.7.0, 1080 × 1920, 60 fps, 244 frames (4.07 s). They contain 11 shape layers and one solid background layer, with only opacity, position and scale keyframed. There are no assets, fonts, masks, mattes, effects or expressions. The final frame matches the approved primary symbol and stacked lockup to within 0.03 px. The generator copies both files unchanged into `composeResources/files/`.
+- **Library:** Compottie 2.3.3 (`io.github.alexzhirkevich:compottie`, Maven Central, released 2026-10-05). It is built against Kotlin 2.4.0 and Compose 1.12.1 and publishes Android, `iosArm64` and `iosSimulatorArm64`. Expressions are switched off. `compottie-core` alone would need an expression engine wired in through internal APIs, so the main artifact is used. It also brings in okio, keight and atomicfu.
+- **Native launch:** Android uses `Theme.Wadrova` with an Ivory window background and, on Android 12+, an Ivory system splash around the launcher icon. iOS uses a `UILaunchScreen` filled with the generated single-appearance `LaunchBackground` colour (Ivory even in system dark mode, like the app). No Lottie plays before the app starts.
+- **In-app splash:** `BrandSplash` is an overlay drawn over the app, which starts underneath as usual: the same ViewModels and the same start tab (Mirror). It isn't a navigation destination. `BrandSplashViewModel` reads one `app_setting` row (`brand_intro_seen`), with no schema change. Until that row is read, the splash shows plain Ivory, which lasts a few frames.
+- **When it plays:**
+  - **First eligible cold launch:** the full splash plays once and is recorded when it completes, is skipped, gets Back, or the app goes to the background.
+  - **Later launches:** straight to the app, after a 220 ms fade of the Ivory cover.
+  - **Reduced motion** (Android "Remove animations", iOS Reduce Motion): the splash is skipped and the launch isn't recorded.
+  - **Failures:** a load failure, a 2 s load timeout or an unreadable flag also goes straight to the app.
+- **Behaviour:**
+  - **Skip:** a Skip button sits top-right, inside the safe area.
+  - **Back** skips (Android).
+  - **Touches** don't reach the app underneath.
+  - **Rotation** resumes the animation, because the clock lives in the ViewModel.
+  - **Timing:** progress is played at the composition's own keyframe timing; no speed changes.
+- **Appearance:** the app is light-only (iOS forces `.light`, Android uses light system bars), so the light splash always plays. `BrandSplash(dark = true)` and the bundled dark file are ready for when a dark theme exists. Showing the dark splash now would flash from graphite into the light app.
+- **Replaying for testing, keeping app data:**
+  - **Android:** `adb shell am start -n com.example.wadrova/.MainActivity --ez replayIntro true`
+  - **iOS:** add `-WadrovaReplayIntro YES` under Xcode › Scheme › Run › Arguments, then remove it again.
+- **Verification (2026-11-03):**
+  - **Builds and tests:** both builds pass, plus 256 host, 264 iOS simulator and 266 connected-device tests.
+  - **Emulator (`Pixel_9_Pro`):**
+    - Interactions checked: first launch, a routine relaunch, Skip, Back, Home then return, touch blocking, reduced motion, rotation mid-intro, and 360 dp, 16:9 and 1840 × 2208 screens.
+    - Captured frames match lottie-web 5.12.2 reference frames (the brand preview's player) at mean colour difference 0.04–0.27, and play at 60 fps of animation time.
+  - **iPhone 17 simulator:** screenshots only, no touch. They show the first launch (frames match the reference), a routine relaunch, the replay argument, an Ivory launch screen in system dark mode, and Reduce Motion skipping the splash.
+  - **Not yet done:** a physical iPhone has not been checked.
+- **Performance (emulator, debug build):**
+  - The splash renders at about 34 fps (median frame 45 ms) on the emulator. Smoothness needs checking on real devices.
+  - Cold start `TotalTime` is unchanged (median 1.13 s against 1.09 s before, within noise).
+  - Memory is about +4.6 MB PSS while the splash plays.
+  - The debug APK is +1.10 MB (dex +4.06 MB uncompressed). The debug iOS simulator app is 68.7 → 82.4 MB, mostly the unoptimised Kotlin/Native debug binary.
+- **Known gaps:**
+  - On Android 12+ the system splash shows the static symbol, then the in-app splash starts on an empty Ivory frame and the leaves slide in. The brand preview's "app open from icon" handoff isn't built.
+  - The splash still carries the deferred lens hairline from the master art.
 
 ## Known issues
 
 - **iOS:** interaction has not been checked for the Wardrobe iterations since the picker and save changes, nor the brand icons. The dark and tinted icons are compiled into the app but haven't been seen on a device.
 - **Unit tests only:** save and delete failure messages can't be forced on a device.
-- **Unreachable empty state:** the picker's empty-category message can't appear, because sample pieces exist in every category.
 - **Save sheet:** Back or swiping it down closes the sheet and drops the typed name.
 - **Unimplemented product rule:** `docs/product.md` lists a swap mode that preserves position.
 - **Stale READMEs:** the README's verification section dates from the Mirror MVP.
+- **Emulator data persists:** `-no-snapshot-save` only skips saving the RAM snapshot. Installed apps and their data stayed across emulator restarts in this session.
 - **Launcher ring:** the Android emulator launcher draws a coloured ring around sideloaded debug app icons. This comes from the launcher, not the icon art.
 
 ## Asset locations
 
 - **Brand masters:** `../wadrova-brand-svg/` (53 SVGs, 6 Lottie files in `motion/`, `previews/identity-review.html`, `previews/motion-preview.html`, `README.md`). Colourways are named for the ground they sit on.
-- **Generated brand files:** `shared/src/commonMain/composeResources/drawable/wadrova_*.xml`, `androidApp/src/main/res/{drawable,values,mipmap-*}/ic_launcher*`, `iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/`.
+- **Generated brand files:** `shared/src/commonMain/composeResources/drawable/wadrova_*.xml`, `shared/src/commonMain/composeResources/files/wadrova-splash-*.json`, `androidApp/src/main/res/{drawable,values,mipmap-*}/ic_launcher*`, `iosApp/iosApp/Assets.xcassets/{AppIcon.appiconset,LaunchBackground.colorset}/`.
 - **Fonts:** `shared/src/commonMain/composeResources/font/`.
 - **Mirror backend:** `mirror_backend/`. Never commit or print its `.env`.

@@ -68,7 +68,7 @@ class WardrobeViewModelTest {
         override fun close() = Unit
     }
 
-    private class FakeGarmentRepository(var garments: List<UserGarment> = emptyList()) : GarmentRepository {
+    private class FakeGarmentRepository(var garments: List<UserGarment> = testGarments) : GarmentRepository {
         var creates = 0
         var sweeps = 0
         var failure: Exception? = null
@@ -115,7 +115,7 @@ class WardrobeViewModelTest {
     private fun userGarment(id: String, category: GarmentCategory = GarmentCategory.OUTERWEAR, archived: Boolean = false) =
         UserGarment(Garment(id, category), "Field Jacket", "Green", null, null, archived)
 
-    private fun item(id: String) = sampleWardrobe.first { it.garment.id == id }
+    private fun item(id: String) = testWardrobe.first { it.garment.id == id }
 
     private val shirt = item("poplin-shirt")
     private val tote = item("leather-tote")
@@ -557,12 +557,21 @@ class WardrobeViewModelTest {
     }
 
     @Test
-    fun userGarmentsLoadAlongsideSamplesAndAreNotLabelledSample() {
+    fun aNewInstallStartsWithAnEmptyWardrobeAndNoLooks() {
+        val viewModel = WardrobeViewModel(FakeRepository(), FakeGarmentRepository(emptyList()), FakePhotoStore())
+        assertEquals(LooksStatus.READY, viewModel.state.looksStatus)
+        assertEquals(emptyList(), viewModel.state.items)
+        assertEquals(emptyList(), viewModel.state.savedLooks)
+        assertEquals(emptyList(), viewModel.state.draftIds)
+        assertEquals(emptyList(), viewModel.state.itemsIn(null))
+    }
+
+    @Test
+    fun onlyStoredGarmentsAreShownAndReloadingAddsNothing() {
         val viewModel = WardrobeViewModel(FakeRepository(), FakeGarmentRepository(listOf(userGarment("mine"))), FakePhotoStore())
-        val mine = viewModel.state.items.first { it.garment.id == "mine" }
-        assertFalse(mine.isSample)
-        assertEquals(sampleWardrobe.size + 1, viewModel.state.availableItems.size)
-        assertTrue(viewModel.state.items.filter { it.garment.id != "mine" }.all { it.isSample })
+        assertEquals(listOf("mine"), viewModel.state.items.map { it.garment.id })
+        viewModel.loadRecords()
+        assertEquals(listOf("mine"), viewModel.state.items.map { it.garment.id })
     }
 
     @Test
@@ -571,7 +580,7 @@ class WardrobeViewModelTest {
         val look = SavedLook("a", "Monday", listOf("mine"), 1, 1)
         val viewModel = WardrobeViewModel(FakeRepository(listOf(look)), garments, FakePhotoStore())
         assertEquals(LooksStatus.FAILED, viewModel.state.looksStatus)
-        assertEquals(sampleWardrobe, viewModel.state.items)
+        assertEquals(emptyList(), viewModel.state.items)
     }
 
     @Test
@@ -592,7 +601,7 @@ class WardrobeViewModelTest {
         viewModel.fillForm()
         viewModel.submitGarmentForm()
         assertEquals(Screen.WARDROBE, viewModel.state.screen)
-        val mine = viewModel.state.availableItems.first { !it.isSample }
+        val mine = viewModel.state.availableItems.first { it.garment.id == "user-1" }
         val coat = item("wool-coat")
         viewModel.update { it.toggle(coat).toggle(mine) }
         assertEquals(listOf(mine.garment.id), viewModel.state.draftIds)
@@ -722,7 +731,7 @@ class WardrobeViewModelTest {
         viewModel.fillForm()
         viewModel.onPhotoPicked(picked)
         viewModel.submitGarmentForm()
-        assertEquals("photo-1", viewModel.state.availableItems.first { !it.isSample }.photoId)
+        assertEquals("photo-1", viewModel.state.availableItems.first { it.garment.id == "user-1" }.photoId)
         assertEquals(emptyList(), photos.deleted)
     }
 

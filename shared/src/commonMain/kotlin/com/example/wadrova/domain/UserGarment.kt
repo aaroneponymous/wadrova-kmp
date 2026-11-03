@@ -1,6 +1,6 @@
 package com.example.wadrova.domain
 
-/** A garment the user added, as opposed to a built-in sample. Archived garments stay resolvable by saved looks. */
+/** A garment the user added. Archived garments stay resolvable by saved looks. */
 data class UserGarment(
     val garment: Garment,
     val name: String,

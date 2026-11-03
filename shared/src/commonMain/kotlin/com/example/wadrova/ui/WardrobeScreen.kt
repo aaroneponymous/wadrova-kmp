@@ -140,7 +140,7 @@ private fun ItemsView(
     Column(Modifier.fillMaxSize().padding(top = 12.dp)) {
         if (archivedMode) {
             ArchivedBar(state.archivedItems.size) { update { it.showArchivedPieces(false) } }
-        } else {
+        } else if (state.availableItems.isNotEmpty()) {
             CategoryChips(state.availableItems, state.wardrobeFilter) { filter -> update { it.filterWardrobe(filter) } }
         }
         LazyVerticalGrid(
@@ -157,24 +157,29 @@ private fun ItemsView(
                     item,
                     state,
                     onToggle = if (archivedMode) null else ({ update { it.requestToggle(item) } }),
-                    onEdit = if (item.isSample) null else ({ update { it.openEditGarment(item) } }),
+                    onEdit = { update { it.openEditGarment(item) } },
                     onOpen = { update { it.openGarmentDetails(item) } },
                 )
             }
-            if (visible.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    WardrobeEmptyState(state.wardrobeFilter, onViewAll = { update { it.filterWardrobe(null) } })
-                }
-            } else {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column {
-                        if (!archivedMode && state.archivedItems.isNotEmpty()) {
-                            ActionButton("Archived pieces · ${state.archivedItems.size}", Modifier.padding(bottom = 16.dp)) {
-                                update { it.showArchivedPieces(true) }
-                            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    if (visible.isEmpty()) {
+                        val wardrobeEmpty = state.availableItems.isEmpty()
+                        WardrobeEmptyState(
+                            if (wardrobeEmpty) null else state.wardrobeFilter,
+                            onViewAll = { update { it.filterWardrobe(null) } },
+                            onAdd = if (wardrobeEmpty) ({ update { it.openAddGarment() } }) else null,
+                        )
+                    }
+                    // Also under the empty state, so pieces stay restorable when every one is archived.
+                    if (!archivedMode && state.archivedItems.isNotEmpty()) {
+                        ActionButton("Archived pieces · ${state.archivedItems.size}", Modifier.padding(top = if (visible.isEmpty()) 16.dp else 0.dp, bottom = 16.dp)) {
+                            update { it.showArchivedPieces(true) }
                         }
+                    }
+                    if (visible.isNotEmpty()) {
                         Text(
-                            "Sample pieces are illustrated examples, not your clothes. Your pieces use a generic illustration until you add a photo.",
+                            "Pieces use a generic illustration until you add a photo.",
                             style = MaterialTheme.typography.bodySmall,
                             color = WadrovaColors.Ink2,
                         )

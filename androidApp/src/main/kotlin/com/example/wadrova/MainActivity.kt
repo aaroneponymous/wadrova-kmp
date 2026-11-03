@@ -15,8 +15,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
         super.onCreate(savedInstanceState)
 
+        // `adb shell am start -n com.example.wadrova/.MainActivity --ez replayIntro true` replays the brand splash.
+        val replayIntro = intent.getBooleanExtra("replayIntro", false)
         setContent {
-            App { createLocalRepositories(applicationContext) }
+            App(replayIntro) { createLocalRepositories(applicationContext) }
         }
     }
 }

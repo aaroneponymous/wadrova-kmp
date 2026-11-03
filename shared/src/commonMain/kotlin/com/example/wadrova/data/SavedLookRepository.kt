@@ -1,7 +1,6 @@
 package com.example.wadrova.data
 
 import app.cash.sqldelight.db.SqlDriver
-import com.example.wadrova.domain.Garment
 import com.example.wadrova.domain.SavedLook
 import com.example.wadrova.domain.canSaveLook
 import kotlin.time.Clock
@@ -37,12 +36,12 @@ data class LocalRepositories(
     val generatedImages: GeneratedImageStore,
     val mirror: MirrorRepository,
     val mirrorBackend: MirrorBackend,
+    val brandIntro: BrandIntroStore,
 )
 
 @OptIn(ExperimentalUuidApi::class)
 class SqlDelightSavedLookRepository(
     private val driver: SqlDriver,
-    private val sampleGarments: List<Garment>,
     private val newId: () -> String = { Uuid.random().toString() },
     private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
@@ -96,7 +95,7 @@ class SqlDelightSavedLookRepository(
     private fun validated(name: String, garmentIds: List<String>): String {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) throw InvalidLookException("A look needs a name.")
-        if (!canSaveLook(garmentIds, sampleGarments + database.userGarmentReferences())) {
+        if (!canSaveLook(garmentIds, database.userGarmentReferences())) {
             throw InvalidLookException("This look includes a piece that is no longer in your wardrobe.")
         }
         return trimmed

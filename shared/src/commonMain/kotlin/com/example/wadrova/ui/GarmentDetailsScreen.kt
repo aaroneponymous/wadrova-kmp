@@ -36,7 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.wadrova.data.PhotoSize
 
-/** A single piece. Details only appear when the piece really has them, so sample pieces show less. */
+/** A single piece. Brand and material only appear when the piece has them. */
 @Composable
 fun GarmentDetailsScreen(
     state: WardrobeUiState,
@@ -67,7 +67,7 @@ fun GarmentDetailsScreen(
                 Text("‹", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
             }
             Spacer(Modifier.weight(1f))
-            if (item != null && !item.isSample) {
+            if (item != null) {
                 Box(
                     Modifier
                         .height(44.dp)
@@ -108,11 +108,10 @@ fun GarmentDetailsScreen(
             ) {
                 GarmentVisual(item, Modifier.fillMaxSize(), PhotoSize.DISPLAY)
             }
-            if (item.isSample) Eyebrow("Sample", Modifier.padding(top = 16.dp))
             if (item.archived) Eyebrow("Archived", Modifier.padding(top = 16.dp))
             Text(
                 item.name,
-                Modifier.padding(top = if (item.isSample || item.archived) 4.dp else 16.dp, bottom = 12.dp),
+                Modifier.padding(top = if (item.archived) 4.dp else 16.dp, bottom = 12.dp),
                 style = MaterialTheme.typography.displaySmall,
                 color = WadrovaColors.Charcoal,
             )
@@ -121,14 +120,6 @@ fun GarmentDetailsScreen(
             DetailRow("Color", item.colorName)
             item.brand?.takeIf { it.isNotBlank() }?.let { DetailRow("Brand", it) }
             item.material?.takeIf { it.isNotBlank() }?.let { DetailRow("Material", it) }
-            if (item.isSample) {
-                Text(
-                    "An illustrated example, not one of your clothes.",
-                    Modifier.padding(top = 12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = WadrovaColors.Ink2,
-                )
-            }
         }
         // Archived pieces stay out of new looks. Editing the piece can restore it.
         if (!item.archived) {

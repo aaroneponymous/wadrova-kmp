@@ -5,7 +5,8 @@ CREATE TABLE saved_look (
     updated_at INTEGER NOT NULL
 );
 
--- garment_id refers to the app's garment catalog, which is not stored in this database.
+-- garment_id usually names a user_garment row. It has no foreign key: a look can still hold ids of
+-- pieces that are gone, including the in-code sample pieces of earlier versions, and shows them as unavailable.
 CREATE TABLE saved_look_garment (
     look_id TEXT NOT NULL REFERENCES saved_look(id),
     garment_id TEXT NOT NULL,

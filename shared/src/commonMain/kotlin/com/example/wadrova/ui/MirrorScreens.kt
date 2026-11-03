@@ -616,7 +616,7 @@ fun TryOnScreen(state: MirrorUiState, viewModel: MirrorViewModel, items: List<Wa
         val candidate = tryOn.candidate
         when {
             item == null -> {
-                val eligible = items.filter { !it.isSample && !it.archived && (it.photoId != null || it.extractedImageId != null) }
+                val eligible = items.filter { !it.archived && (it.photoId != null || it.extractedImageId != null) }
                 if (eligible.isEmpty()) {
                     Body("Add a photo to one of your own pieces to try it on.")
                 } else {

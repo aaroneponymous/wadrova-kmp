@@ -15,7 +15,6 @@ import kotlinx.coroutines.test.runTest
 
 class GarmentRepositoryTest {
     private val databaseName = "garment_test"
-    private val samples = listOf(Garment("sample-shirt", GarmentCategory.TOP))
     private val jacket = GarmentDetails("  Field Jacket ", GarmentCategory.OUTERWEAR, " Green ", "  ", " Cotton ")
     private lateinit var driver: SqlDriver
     private lateinit var garments: GarmentRepository
@@ -24,7 +23,7 @@ class GarmentRepositoryTest {
     private fun open() {
         driver = openTestDatabase(databaseName)
         garments = SqlDelightGarmentRepository(driver, FakePhotoStore(), FakeGeneratedImageStore())
-        looks = SqlDelightSavedLookRepository(driver, samples)
+        looks = SqlDelightSavedLookRepository(driver)
     }
 
     @BeforeTest
@@ -95,9 +94,12 @@ class GarmentRepositoryTest {
     }
 
     @Test
-    fun looksCanReferenceUserGarmentsAndSamples() = runTest {
+    fun looksCanOnlyBeSavedWithTheUsersOwnGarments() = runTest {
         val id = garments.create(jacket).garment.id
-        val look = looks.create("Monday", listOf("sample-shirt", id))
+        val look = looks.create("Monday", listOf(id))
+        assertEquals(listOf(look), looks.getAll())
+        // The in-code sample pieces of earlier versions are no longer garments the app knows.
+        assertFailsWith<InvalidLookException> { looks.create("Tuesday", listOf("poplin-shirt", id)) }
         assertEquals(listOf(look), looks.getAll())
     }
 

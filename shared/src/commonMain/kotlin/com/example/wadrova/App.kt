@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.wadrova.data.LocalRepositories
+import com.example.wadrova.ui.BrandSplash
+import com.example.wadrova.ui.BrandSplashViewModel
 import com.example.wadrova.ui.CreateModelScreen
 import com.example.wadrova.ui.ExtractionScreen
 import com.example.wadrova.ui.GarmentDetailsScreen
@@ -52,15 +54,19 @@ import com.example.wadrova.ui.WardrobeScreen
 import com.example.wadrova.ui.WardrobeViewModel
 import com.example.wadrova.ui.placeholderBackTab
 import com.example.wadrova.ui.primaryBarInsets
+import com.example.wadrova.ui.rememberReducedMotion
 import com.example.wadrova.ui.showsPrimaryBar
 
 /** Gives every ViewModel the same repositories over one database connection. */
 private class RepositoriesHolder(val repositories: LocalRepositories) : ViewModel()
 
+/** [replayIntro] plays the brand splash even if it has been seen, for testing it without clearing app data. */
 @Composable
-fun App(createRepositories: () -> LocalRepositories) {
+fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositories) {
     val holder = viewModel { RepositoriesHolder(createRepositories()) }
     val repositories = holder.repositories
+    val reducedMotion = rememberReducedMotion()
+    val splash = viewModel { BrandSplashViewModel(repositories.brandIntro, replayIntro, reducedMotion) }
     val viewModel = viewModel { WardrobeViewModel(repositories.savedLooks, repositories.garments, repositories.photos) }
     val mirror = viewModel {
         MirrorViewModel(
@@ -228,5 +234,9 @@ fun App(createRepositories: () -> LocalRepositories) {
                 },
             )
         }
+
+        // Drawn last, over the app, which has already started underneath. The app is light-only for
+        // now, so the light splash plays; the dark file is bundled for when a dark theme exists.
+        BrandSplash(splash)
     }
 }

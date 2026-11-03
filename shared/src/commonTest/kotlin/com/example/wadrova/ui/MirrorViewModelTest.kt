@@ -151,7 +151,6 @@ class MirrorViewModelTest {
         "White",
         GarmentIllustrationType.TEE,
         androidx.compose.ui.graphics.Color.White,
-        isSample = false,
         photoId = "photo",
     )
 
