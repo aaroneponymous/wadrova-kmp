@@ -145,9 +145,10 @@ private fun ItemsView(
         }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(150.dp),
-            modifier = Modifier.fillMaxSize(),
+            // A fixed gap, not top content padding, so pieces clip clear of the filters instead of against them.
+            modifier = Modifier.fillMaxSize().padding(top = 16.dp),
             state = grid,
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 84.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 84.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {

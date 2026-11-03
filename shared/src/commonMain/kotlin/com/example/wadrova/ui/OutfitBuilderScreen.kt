@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -66,76 +68,118 @@ fun OutfitBuilderScreen(
         Modifier
             .fillMaxSize()
             .background(WadrovaColors.Ivory)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            .verticalScroll(rememberScrollState())
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-            .padding(horizontal = 20.dp)
-            .padding(top = 12.dp, bottom = 24.dp),
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
     ) {
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(WadrovaColors.Warm)
-                .border(1.dp, WadrovaColors.Line, CircleShape)
-                .clickable(role = Role.Button) { update { it.openWardrobe() } }
-                .semantics { contentDescription = "Back to wardrobe" },
-            contentAlignment = Alignment.Center,
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("‹", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(WadrovaColors.Warm)
+                    .border(1.dp, WadrovaColors.Line, CircleShape)
+                    .clickable(role = Role.Button) { update { it.requestLeaveBuilder() } }
+                    .semantics { contentDescription = if (state.detailGarmentId != null) "Back to garment details" else "Back to wardrobe" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("‹", style = MaterialTheme.typography.titleLarge, color = WadrovaColors.Charcoal)
+            }
+            Eyebrow(
+                when {
+                    opened == null -> "New look"
+                    state.isDirty -> "Editing look · unsaved changes"
+                    else -> "Saved look"
+                },
+                Modifier.weight(1f),
+            )
         }
-        Eyebrow(
-            when {
-                opened == null -> "Outfit Builder"
-                state.isDirty -> "Editing look · unsaved changes"
-                else -> "Saved look"
-            },
-            Modifier.padding(top = 14.dp),
-        )
-        Box(Modifier.padding(top = 6.dp, bottom = 16.dp)) {
-            if (opened == null) {
-                EditorialTitle("Create ", "a look", WadrovaColors.Cobalt)
+
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(top = 4.dp, bottom = 24.dp),
+        ) {
+            Box(Modifier.padding(bottom = 16.dp)) {
+                if (opened == null) {
+                    EditorialTitle("Create ", "a look", WadrovaColors.Cobalt)
+                } else {
+                    Text(opened.name, style = MaterialTheme.typography.displaySmall, color = WadrovaColors.Charcoal)
+                }
+            }
+
+            if (state.isEditingEmptyLook && opened != null) {
+                EmptiedLook(
+                    opened.name,
+                    onAdd = { update { it.openPicker() } },
+                    onDiscard = { update { it.restoreSavedLook() } },
+                )
+            } else if (draft.isEmpty()) {
+                EmptyCanvas(
+                    onAdd = { update { it.openPicker() } },
+                    onStart = { category -> update { it.openPicker(category) } },
+                )
             } else {
-                Text(opened.name, style = MaterialTheme.typography.displaySmall, color = WadrovaColors.Charcoal)
+                Moodboard(draft, isSaved = opened != null)
+            }
+            if (state.unknownDraftIds.isNotEmpty()) {
+                MissingPiecesNotice(state.unknownDraftIds.size, onRemove = { update { it.removeUnknownPieces() } })
+            }
+            if (draft.isNotEmpty()) {
+                PieceList(draft, onRemove = { item -> update { it.toggle(item) } })
+            }
+            if (opened != null) {
+                Box(
+                    Modifier
+                        .padding(top = 32.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(role = Role.Button) { update { it.requestNewOutfit() } }
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Start a new look", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Ink2)
+                }
             }
         }
 
-        if (draft.isEmpty()) {
-            EmptyCanvas(onStart = { category -> update { it.openPicker(category) } })
-        } else {
-            Moodboard(draft)
-            ActionButton("+ Add pieces", Modifier.padding(top = 12.dp)) { update { it.openPicker() } }
-            if (opened == null || state.isDirty) {
-                ActionButton(
-                    "Save look",
-                    Modifier.padding(top = 8.dp),
-                    dark = true,
-                    enabled = state.canSaveDraft,
-                ) { update { it.openSaveSheet() } }
-            }
-        }
-        if (state.unknownDraftIds.isNotEmpty()) {
-            MissingPiecesNotice(state.unknownDraftIds.size, onRemove = { update { it.removeUnknownPieces() } })
-        }
         if (draft.isNotEmpty()) {
-            PieceList(draft, onRemove = { item -> update { it.toggle(item) } })
+            BuilderActions(
+                showSave = opened == null || state.isDirty,
+                canSave = state.canSaveDraft,
+                onAdd = { update { it.openPicker() } },
+                onSave = { update { it.openSaveSheet() } },
+            )
         }
-        if (opened != null) {
-            ActionButton("Start a new look", Modifier.padding(top = 16.dp)) { update { it.requestNewLook() } }
-        }
-
-        Text(
-            "Saved looks stay on this device. Your draft lasts while the app is open.",
-            Modifier.padding(top = 20.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = WadrovaColors.Ink2,
-        )
     }
 
     if (state.pickerOpen) {
         GarmentPickerSheet(state, update)
     }
     state.saveSheet?.let { sheet -> SaveLookSheet(state, sheet, update, onSave) }
+}
+
+/** Sits below the scrolling content rather than over it, so it never hides a piece. */
+@Composable
+private fun BuilderActions(showSave: Boolean, canSave: Boolean, onAdd: () -> Unit, onSave: () -> Unit) {
+    Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars)) {
+        HorizontalDivider(color = WadrovaColors.Line)
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ActionButton("Add pieces", Modifier.weight(1f), onClick = onAdd)
+            if (showSave) {
+                ActionButton("Save look", Modifier.weight(1f), dark = true, enabled = canSave, onClick = onSave)
+            }
+        }
+    }
 }
 
 @Composable
@@ -159,7 +203,7 @@ private fun MissingPiecesNotice(count: Int, onRemove: () -> Unit) {
 
 /** Primary pieces lead in a wide column and supporting pieces sit beside them, as in the prototype. */
 @Composable
-private fun Moodboard(draft: List<WardrobeItem>) {
+private fun Moodboard(draft: List<WardrobeItem>, isSaved: Boolean) {
     val isSupport = { item: WardrobeItem ->
         item.garment.category == GarmentCategory.FOOTWEAR || item.garment.category == GarmentCategory.ACCESSORY
     }
@@ -188,7 +232,7 @@ private fun Moodboard(draft: List<WardrobeItem>) {
         if (right.isNotEmpty()) {
             Column(Modifier.fillMaxHeight().weight(0.4f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Look in progress · ${draft.size.toString().padStart(2, '0')}",
+                    if (isSaved) "${draft.size} pieces" else "Look in progress · ${draft.size.toString().padStart(2, '0')}",
                     Modifier.padding(start = 4.dp, top = 8.dp),
                     style = MaterialTheme.typography.headlineSmall.copy(fontSize = MaterialTheme.typography.titleSmall.fontSize, lineHeight = MaterialTheme.typography.titleSmall.lineHeight),
                     color = WadrovaColors.Ink2,
@@ -219,24 +263,50 @@ private fun ColumnScope.MoodTile(item: WardrobeItem) {
     }
 }
 
-/** Ghost composition with a few starting points. */
+/** A saved look with every piece removed. The saved version is untouched until a valid update. */
 @Composable
-private fun EmptyCanvas(onStart: (GarmentCategory) -> Unit) {
+private fun EmptiedLook(name: String, onAdd: () -> Unit, onDiscard: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .aspectRatio(4f / 5f)
             .clip(RoundedCornerShape(26.dp))
             .background(WadrovaColors.Studio)
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            "A look needs at least one piece.",
+            style = MaterialTheme.typography.headlineSmall,
+            color = WadrovaColors.Charcoal,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            "Add a piece to save your changes. $name is still saved as it was.",
+            Modifier.padding(top = 8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = WadrovaColors.Ink2,
+            textAlign = TextAlign.Center,
+        )
+        ActionButton("Add pieces", Modifier.padding(top = 20.dp), dark = true, onClick = onAdd)
+        ActionButton("Discard changes", Modifier.padding(top = 8.dp), onClick = onDiscard)
+    }
+}
+
+/** How to begin: one main action, or a shortcut into any category. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EmptyCanvas(onAdd: () -> Unit, onStart: (GarmentCategory) -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(WadrovaColors.Studio)
+            .padding(24.dp),
     ) {
         Text(
             "Start with a piece you love.",
             style = MaterialTheme.typography.headlineSmall,
             color = WadrovaColors.Charcoal,
-            textAlign = TextAlign.Center,
         )
         Text(
             "Build the look around it.",
@@ -244,12 +314,14 @@ private fun EmptyCanvas(onStart: (GarmentCategory) -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = WadrovaColors.Ink2,
         )
-        Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                "A top" to GarmentCategory.TOP,
-                "A dress" to GarmentCategory.DRESS,
-                "A jacket" to GarmentCategory.OUTERWEAR,
-            ).forEach { (label, category) ->
+        ActionButton("Add pieces", Modifier.padding(top = 20.dp), dark = true, onClick = onAdd)
+        Eyebrow("Or start with", Modifier.padding(top = 24.dp))
+        FlowRow(
+            Modifier.padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            filterCategories.forEach { category ->
                 Box(
                     Modifier
                         .height(44.dp)
@@ -260,7 +332,7 @@ private fun EmptyCanvas(onStart: (GarmentCategory) -> Unit) {
                         .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(label, style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Charcoal)
+                    Text(category.pluralLabel, style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Charcoal)
                 }
             }
         }
@@ -351,7 +423,7 @@ internal fun ActionButton(
 @Composable
 private fun GarmentPickerSheet(state: WardrobeUiState, update: ((WardrobeUiState) -> WardrobeUiState) -> Unit) {
     val visible = state.itemsIn(state.pickerFilter)
-    val count = state.draftIds.size
+    val count = state.builderPieceCount
 
     ModalBottomSheet(
         onDismissRequest = { update { it.closePicker() } },

@@ -1,5 +1,6 @@
 package com.example.wadrova.ui
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,7 +38,11 @@ import com.example.wadrova.data.PhotoSize
 
 /** A single piece. Details only appear when the piece really has them, so sample pieces show less. */
 @Composable
-fun GarmentDetailsScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> WardrobeUiState) -> Unit) {
+fun GarmentDetailsScreen(
+    state: WardrobeUiState,
+    update: ((WardrobeUiState) -> WardrobeUiState) -> Unit,
+    scroll: ScrollState,
+) {
     val item = state.detailItem
     Column(
         Modifier
@@ -89,7 +93,7 @@ fun GarmentDetailsScreen(state: WardrobeUiState, update: ((WardrobeUiState) -> W
         Column(
             Modifier
                 .weight(1f)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scroll)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 16.dp),
         ) {

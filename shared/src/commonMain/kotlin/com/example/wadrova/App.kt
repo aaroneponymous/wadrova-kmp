@@ -1,5 +1,6 @@
 package com.example.wadrova
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,18 +9,22 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.wadrova.data.LocalRepositories
@@ -75,6 +80,7 @@ fun App(createRepositories: () -> LocalRepositories) {
     // Up here so each list keeps its position across the builder and the garment form.
     val itemsGrid = rememberLazyGridState()
     val outfitsGrid = rememberLazyGridState()
+    val detailsScroll = remember(state.detailGarmentId) { ScrollState(0) }
 
     WadrovaTheme {
         CompositionLocalProvider(LocalPhotoLoader provides mirror.imageLoader) {
@@ -105,19 +111,20 @@ fun App(createRepositories: () -> LocalRepositories) {
                                 }
                                 Screen.GARMENT_DETAILS -> {
                                     PlatformBackHandler { viewModel.update { it.openWardrobe() } }
-                                    GarmentDetailsScreen(state, viewModel::update)
+                                    GarmentDetailsScreen(state, viewModel::update, detailsScroll)
                                 }
                                 Screen.BUILDER -> {
-                                    PlatformBackHandler { viewModel.update { it.openWardrobe() } }
+                                    PlatformBackHandler { viewModel.update { it.requestLeaveBuilder() } }
                                     OutfitBuilderScreen(state, viewModel::update, viewModel::save)
                                 }
                                 Screen.GARMENT_FORM -> {
-                                    PlatformBackHandler { viewModel.cancelGarmentForm() }
+                                    PlatformBackHandler { viewModel.requestCancelGarmentForm() }
                                     GarmentFormScreen(
                                         state,
                                         viewModel::update,
                                         viewModel::submitGarmentForm,
                                         viewModel::setEditedGarmentArchived,
+                                        viewModel::requestCancelGarmentForm,
                                         viewModel::cancelGarmentForm,
                                         viewModel::onPhotoPicked,
                                         viewModel::removeFormPhoto,
@@ -180,11 +187,34 @@ fun App(createRepositories: () -> LocalRepositories) {
             )
         }
 
+        state.pendingLookDelete?.let { pending ->
+            AlertDialog(
+                onDismissRequest = { viewModel.update { it.cancelDeleteLook() } },
+                title = { Text("Delete \"${pending.look.name}\"?") },
+                text = {
+                    Column {
+                        Text("This saved outfit will be permanently removed. The individual clothing pieces in your wardrobe will not be deleted.")
+                        pending.error?.let { error ->
+                            Text(error, Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(enabled = !pending.deleting, onClick = viewModel::deleteLook) {
+                        Text(if (pending.deleting) "Deleting…" else "Delete look", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(enabled = !pending.deleting, onClick = { viewModel.update { it.cancelDeleteLook() } }) { Text("Cancel") }
+                },
+            )
+        }
+
         if (state.pendingDiscard != null) {
             AlertDialog(
                 onDismissRequest = { viewModel.update { it.keepDraft() } },
                 title = { Text("Discard your changes?") },
-                text = { Text("The look you're working on hasn't been saved.") },
+                text = { Text(state.discardMessage) },
                 confirmButton = {
                     TextButton(onClick = { viewModel.update { it.confirmDiscard() } }) { Text("Discard") }
                 },

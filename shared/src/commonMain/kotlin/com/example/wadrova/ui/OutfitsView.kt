@@ -1,5 +1,6 @@
 package com.example.wadrova.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,19 +13,30 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,7 +86,12 @@ fun OutfitsView(
                 }
                 else -> {
                     items(looks, key = { it.id }) { look ->
-                        OutfitCard(state, look) { update { it.requestOpen(look) } }
+                        OutfitCard(
+                            state,
+                            look,
+                            onOpen = { update { it.openLook(look) } },
+                            onDelete = { update { it.requestDeleteLook(look) } },
+                        )
                     }
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text("Saved on this device.", style = MaterialTheme.typography.bodySmall, color = WadrovaColors.Ink2)
@@ -114,13 +131,16 @@ private fun Message(title: String, detail: String?) {
 }
 
 @Composable
-private fun OutfitCard(state: WardrobeUiState, look: SavedLook, onOpen: () -> Unit) {
+private fun OutfitCard(state: WardrobeUiState, look: SavedLook, onOpen: () -> Unit, onDelete: () -> Unit) {
     val missing = state.missingPieceCount(look)
     val archived = state.archivedPieceCount(look)
     val pieces = look.garmentIds.size
 
     Column(Modifier.clickable(role = Role.Button, onClick = onOpen)) {
-        OutfitPreview(state.itemsFor(look))
+        Box {
+            OutfitPreview(state.itemsFor(look))
+            OutfitMenu(look.name, onDelete, Modifier.align(Alignment.TopEnd))
+        }
         Text(
             look.name,
             Modifier.padding(top = 10.dp),
@@ -139,6 +159,45 @@ private fun OutfitCard(state: WardrobeUiState, look: SavedLook, onOpen: () -> Un
             style = MaterialTheme.typography.bodySmall,
             color = WadrovaColors.Ink2,
         )
+    }
+}
+
+/** Three dots in the same corner and size as a garment card's select circle, with its own touch target. */
+@Composable
+private fun OutfitMenu(name: String, onDelete: () -> Unit, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Box(
+            Modifier
+                .size(44.dp)
+                .clickable(role = Role.Button) { open = true }
+                .semantics { contentDescription = "More options for $name" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(WadrovaColors.Warm.copy(alpha = 0.8f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(Modifier.size(14.dp, 4.dp)) {
+                    val radius = size.height / 2
+                    listOf(radius, size.width / 2, size.width - radius).forEach { x ->
+                        drawCircle(WadrovaColors.Charcoal, radius, Offset(x, radius))
+                    }
+                }
+            }
+        }
+        DropdownMenu(open, onDismissRequest = { open = false }, containerColor = WadrovaColors.Warm) {
+            DropdownMenuItem(
+                text = { Text("Delete look", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error) },
+                onClick = {
+                    open = false
+                    onDelete()
+                },
+            )
+        }
     }
 }
 

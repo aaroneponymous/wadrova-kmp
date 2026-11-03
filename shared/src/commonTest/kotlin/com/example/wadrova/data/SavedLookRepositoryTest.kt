@@ -92,6 +92,35 @@ class SavedLookRepositoryTest {
     }
 
     @Test
+    fun deleteRemovesOnlyThatLookAndItsReferencesEvenAfterReopening() = runTest {
+        val kept = repository.create("Monday", listOf("shirt", "jeans"))
+        val deleted = repository.create("Tuesday", listOf("shirt", "bag"))
+        repository.delete(deleted.id)
+        assertEquals(listOf(kept), repository.getAll())
+
+        repository.close()
+        repository = open()
+        assertEquals(listOf(kept), repository.getAll())
+    }
+
+    @Test
+    fun deletingLeavesNoOrphanedPieceRows() = runTest {
+        repository.close()
+        val driver = openTestDatabase(databaseName)
+        repository = SqlDelightSavedLookRepository(driver, garments)
+        val look = repository.create("Monday", listOf("shirt", "bag"))
+        repository.delete(look.id)
+        assertEquals(emptyList(), WadrovaDatabase(driver).savedLookQueries.selectLookGarments().executeAsList())
+    }
+
+    @Test
+    fun deletingAMissingLookChangesNothing() = runTest {
+        val kept = repository.create("Monday", listOf("shirt"))
+        repository.delete("missing")
+        assertEquals(listOf(kept), repository.getAll())
+    }
+
+    @Test
     fun failedGarmentInsertRollsBackTheWholeLook() = runTest {
         repository.close()
         val driver = openTestDatabase(databaseName)

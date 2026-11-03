@@ -28,6 +28,9 @@ INSERT INTO saved_look (id, name, created_at, updated_at) VALUES (?, ?, ?, ?);
 updateLook:
 UPDATE saved_look SET name = ?, updated_at = ? WHERE id = ?;
 
+deleteLook:
+DELETE FROM saved_look WHERE id = ?;
+
 insertLookGarment:
 INSERT INTO saved_look_garment (look_id, garment_id, position) VALUES (?, ?, ?);
 

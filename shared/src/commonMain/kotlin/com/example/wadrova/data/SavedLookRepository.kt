@@ -20,6 +20,9 @@ interface SavedLookRepository {
     /** Replaces an existing look's name and pieces, keeping its id. Throws like [create]. */
     suspend fun update(id: String, name: String, garmentIds: List<String>): SavedLook
 
+    /** Removes the look and its piece references, never the garments themselves. A look that's already gone is not an error. */
+    suspend fun delete(id: String)
+
     /** Closes the underlying database, which other repositories may share. */
     fun close()
 }
@@ -78,6 +81,13 @@ class SqlDelightSavedLookRepository(
             queries.deleteLookGarments(id)
             insertGarments(id, garmentIds)
             SavedLook(id, trimmed, garmentIds, existing.created_at, now)
+        }
+    }
+
+    override suspend fun delete(id: String) = withContext(dispatcher) {
+        queries.transaction {
+            queries.deleteLookGarments(id)
+            queries.deleteLook(id)
         }
     }
 
