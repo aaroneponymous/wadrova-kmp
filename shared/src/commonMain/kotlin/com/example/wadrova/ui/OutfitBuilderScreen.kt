@@ -99,7 +99,8 @@ fun OutfitBuilderScreen(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(top = 4.dp, bottom = 24.dp),
+                // Room below the last action so it scrolls clear of the action bar.
+                .padding(top = 4.dp, bottom = 48.dp),
         ) {
             Box(Modifier.padding(bottom = 16.dp)) {
                 if (opened == null) {

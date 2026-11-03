@@ -89,13 +89,75 @@ class MoodboardLayoutTest {
     }
 
     @Test
-    fun severalAccessoriesShareARowBeneathTheOutfit() {
-        val pieces = photos(TOP, BOTTOM, FOOTWEAR, ACCESSORY, ACCESSORY, ACCESSORY)
+    fun smallAccessoriesPairUpUnderTheLeadToFillTheSpaceBesideTheOutfit() {
+        // Like Ahoy: jacket, tank and trousers photos with illustrated sneakers, belt, hat, scarf and bag.
+        val pieces = photos(OUTERWEAR, TOP, BOTTOM) + listOf(
+            MoodPiece(FOOTWEAR, 0.5f),
+            MoodPiece(ACCESSORY, 0.3f),
+            MoodPiece(ACCESSORY, 0.7f),
+            MoodPiece(ACCESSORY, 1.9f),
+            MoodPiece(ACCESSORY, 1.2f),
+        )
+        val layout = moodboardLayout(pieces)
+        assertValid(pieces, layout)
+        val (coat, top, bottom, shoes) = layout.slots
+        val (first, second) = layout.slots.drop(4)
+        assertEquals(first.y + first.height, second.y + second.height, 0.0001f, "the first two share a row")
+        assertTrue(second.x + second.width <= coat.x + coat.width + 0.0001f, "in the lead's column")
+        assertTrue(shoes.y < coat.y + coat.height + 0.1f, "the shoes sit close below the lead")
+        assertTrue(layout.slots.drop(4).all { it.height <= 0.3301f })
+        assertTrue(top.y < bottom.y)
+    }
+
+    @Test
+    fun tallAccessoriesShareARowBeneathTheOutfitWhenThatIsShorter() {
+        val pieces = photos(OUTERWEAR, TOP, BOTTOM, FOOTWEAR, ACCESSORY, ACCESSORY, ACCESSORY, ACCESSORY)
         val slots = moodboardLayout(pieces).slots
-        val outfitBottom = slots.take(3).maxOf { it.y + it.height }
-        val accessories = slots.drop(3)
-        assertTrue(accessories.all { it.y > outfitBottom })
+        val outfitBottom = slots.take(4).maxOf { it.y + it.height }
+        val accessories = slots.drop(4)
+        assertTrue(accessories.all { it.y > outfitBottom && it.height <= 0.3301f })
         assertEquals(1, accessories.map { it.y + it.height }.distinct().size)
+    }
+
+    @Test
+    fun aThreePieceOutfitLeavesLittleSpaceBelowTheLead() {
+        // Blouse and skirt photos with illustrated boots.
+        val pieces = listOf(MoodPiece(TOP, 1.5f), MoodPiece(BOTTOM, 1.5f), MoodPiece(FOOTWEAR, 1.16f))
+        val layout = moodboardLayout(pieces)
+        assertValid(pieces, layout)
+        val lead = layout.slots[0]
+        assertTrue(layout.height < 1f, "height ${layout.height}")
+        assertTrue(layout.height - (lead.y + lead.height) < 0.1f)
+    }
+
+    @Test
+    fun trimmedShoesAndAccessoriesKeepTheirDrawnSize() {
+        val full = moodboardLayout(listOf(MoodPiece(DRESS, 1.5f), MoodPiece(FOOTWEAR, 1.2f), MoodPiece(ACCESSORY, 1.2f))).slots
+        val trimmed = moodboardLayout(listOf(MoodPiece(DRESS, 1.5f), MoodPiece(FOOTWEAR, 1.1f, 0.7f), MoodPiece(ACCESSORY, 1.1f, 0.7f))).slots
+        assertEquals(full[1].width * 0.7f, trimmed[1].width, 0.0001f)
+        assertEquals(full[2].width * 0.7f, trimmed[2].width, 0.0001f)
+    }
+
+    @Test
+    fun aLeadBesideATallerStackIsCentredOnIt() {
+        val layout = moodboardLayout(photos(OUTERWEAR, TOP, BOTTOM))
+        val coat = layout.slots[0]
+        assertEquals(coat.y, layout.height - (coat.y + coat.height), 0.0001f)
+    }
+
+    @Test
+    fun theFourPieceDressAndTrenchLookKeepsItsLayout() {
+        val slots = moodboardLayout(photos(DRESS, OUTERWEAR, ACCESSORY, FOOTWEAR)).slots
+        val expected = listOf(
+            MoodSlot(0f, 0f, 0.55f, 0.825f),
+            MoodSlot(0.6f, 0.1f, 0.4f, 0.6f),
+            MoodSlot(0.33f, 0.875f, 0.22f, 0.33f),
+            MoodSlot(0.6f, 0.75f, 0.3f, 0.45f),
+        )
+        expected.zip(slots).forEach { (want, got) ->
+            listOf(want.x to got.x, want.y to got.y, want.width to got.width, want.height to got.height)
+                .forEach { (a, b) -> assertEquals(a, b, 0.0001f, "$want vs $got") }
+        }
     }
 
     @Test

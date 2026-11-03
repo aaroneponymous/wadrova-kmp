@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
@@ -77,19 +78,49 @@ enum class GarmentIllustrationType(val shape: String, val details: String) {
     ),
 }
 
-/** Draws the item's illustration, fitted and centered without cropping. */
+/** Room around a trimmed outline for its stroke. */
+private const val TRIM_MARGIN = 2f
+
+private val outlineBounds = mutableMapOf<GarmentIllustrationType, Rect>()
+
+/** The area the drawing covers within the viewport, with room for its strokes. */
+private val GarmentIllustrationType.outline: Rect
+    get() = outlineBounds.getOrPut(this) {
+        val shape = PathParser().parsePathString(shape).toPath().getBounds()
+        val details = PathParser().parsePathString(details).toPath().getBounds()
+        Rect(
+            minOf(shape.left, details.left) - TRIM_MARGIN,
+            minOf(shape.top, details.top) - TRIM_MARGIN,
+            maxOf(shape.right, details.right) + TRIM_MARGIN,
+            maxOf(shape.bottom, details.bottom) + TRIM_MARGIN,
+        )
+    }
+
+/** Height over width of the drawing when trimmed to its outline. */
+val GarmentIllustrationType.trimmedAspect: Float
+    get() = outline.height / outline.width
+
+/** The part of the viewport's width the trimmed drawing spans. */
+val GarmentIllustrationType.trimmedShare: Float
+    get() = outline.width / VIEWPORT_WIDTH
+
+/**
+ * Draws the item's illustration, fitted and centered without cropping. [trimmed] fits the
+ * drawing's own outline instead of the whole viewport, leaving out the empty space around it.
+ */
 @Composable
-fun GarmentIllustration(item: WardrobeItem, modifier: Modifier = Modifier) {
+fun GarmentIllustration(item: WardrobeItem, modifier: Modifier = Modifier, trimmed: Boolean = false) {
     val type = item.illustration
     val shape = remember(type) { PathParser().parsePathString(type.shape).toPath() }
     val details = remember(type) { PathParser().parsePathString(type.details).toPath() }
+    val frame = if (trimmed) type.outline else Rect(0f, 0f, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
     val line = if (item.tint.luminance() < 0.2f) Color.White.copy(alpha = 0.45f) else WadrovaColors.Charcoal.copy(alpha = 0.4f)
     val outline = WadrovaColors.Charcoal.copy(alpha = 0.35f)
 
     Canvas(modifier.semantics { contentDescription = "Illustration of ${item.name}" }) {
-        val fit = min(size.width / VIEWPORT_WIDTH, size.height / VIEWPORT_HEIGHT)
-        val left = (size.width - VIEWPORT_WIDTH * fit) / 2
-        val top = (size.height - VIEWPORT_HEIGHT * fit) / 2
+        val fit = min(size.width / frame.width, size.height / frame.height)
+        val left = (size.width - frame.width * fit) / 2 - frame.left * fit
+        val top = (size.height - frame.height * fit) / 2 - frame.top * fit
         translate(left, top) {
             scale(fit, fit, pivot = Offset.Zero) {
                 drawPath(shape, item.tint)

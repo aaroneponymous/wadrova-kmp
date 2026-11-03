@@ -92,15 +92,23 @@ fun GeneratedImageOrFallback(
     fallback: @Composable () -> Unit,
 ) = LoadedImage(imageId, description, modifier, fallback) { it.loadGenerated(imageId) }
 
-/** The garment's approved extraction where it has one, then its photo, then its illustration. */
+/**
+ * The garment's approved extraction where it has one, then its photo, then its illustration,
+ * trimmed to its outline if [trimIllustration] is set.
+ */
 @Composable
-fun GarmentVisual(item: WardrobeItem, modifier: Modifier = Modifier, size: PhotoSize = PhotoSize.THUMBNAIL) {
+fun GarmentVisual(
+    item: WardrobeItem,
+    modifier: Modifier = Modifier,
+    size: PhotoSize = PhotoSize.THUMBNAIL,
+    trimIllustration: Boolean = false,
+) {
     val photoOrIllustration: @Composable () -> Unit = {
         val photoId = item.photoId
         if (photoId == null) {
-            GarmentIllustration(item, modifier)
+            GarmentIllustration(item, modifier, trimIllustration)
         } else {
-            PhotoOrFallback(photoId, size, "Photo of ${item.name}", modifier) { GarmentIllustration(item, modifier) }
+            PhotoOrFallback(photoId, size, "Photo of ${item.name}", modifier) { GarmentIllustration(item, modifier, trimIllustration) }
         }
     }
     val extractedId = item.extractedImageId
