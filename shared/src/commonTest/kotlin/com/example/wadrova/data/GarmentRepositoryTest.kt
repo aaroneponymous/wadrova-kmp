@@ -125,4 +125,20 @@ class GarmentRepositoryTest {
         assertEquals(emptyList(), garments.getAll())
         assertFailsWith<InvalidLookException> { looks.create("Monday", listOf("future")) }
     }
+
+    @Test
+    fun deletingALookLeavesItsGarmentsAndPhotosInPlace() = runTest {
+        val photos = FakePhotoStore(mutableSetOf("photo-kept"))
+        val repository = SqlDelightGarmentRepository(driver, photos, FakeGeneratedImageStore())
+        val garment = repository.create(jacket, "photo-kept")
+        val look = looks.create("Monday", listOf(garment.garment.id))
+        val before = repository.getAll()
+
+        looks.delete(look.id)
+        repository.removeUnreferencedPhotos()
+
+        assertEquals(before, repository.getAll())
+        assertEquals(setOf("photo-kept"), photos.stored)
+        assertEquals(emptyList(), photos.deleted)
+    }
 }

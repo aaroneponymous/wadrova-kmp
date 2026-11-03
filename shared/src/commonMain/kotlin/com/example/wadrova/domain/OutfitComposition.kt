@@ -15,6 +15,10 @@ fun toggleInOutfit(ids: List<String>, garment: Garment, garments: List<Garment>)
     return kept + garment.id
 }
 
+/** The ids that adding [garment] would take out of the outfit. Empty if it's already in, since tapping it again removes only it. */
+fun replacedByAdding(ids: List<String>, garment: Garment, garments: List<Garment>): List<String> =
+    if (garment.id in ids) emptyList() else ids - toggleInOutfit(ids, garment, garments).toSet()
+
 /** Accessories stack, a dress fills the top and bottom slots, and every other category holds one piece. */
 private fun conflicts(added: GarmentCategory, existing: GarmentCategory): Boolean = when (added) {
     GarmentCategory.ACCESSORY -> false

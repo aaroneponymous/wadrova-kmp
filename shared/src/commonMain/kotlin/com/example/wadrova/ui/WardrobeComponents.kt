@@ -1,9 +1,12 @@
 package com.example.wadrova.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,11 +93,16 @@ fun CategoryChips(items: List<WardrobeItem>, selected: GarmentCategory?, onSelec
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CategoryChip(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
     val content = if (selected) WadrovaColors.Warm else WadrovaColors.Charcoal
+    // A remembered category may sit past the edge of the row, so it scrolls into sight when shown.
+    val sight = remember { BringIntoViewRequester() }
+    if (selected) LaunchedEffect(Unit) { sight.bringIntoView() }
     Row(
         Modifier
+            .bringIntoViewRequester(sight)
             .height(44.dp)
             .clip(CircleShape)
             .background(if (selected) WadrovaColors.Charcoal else WadrovaColors.Warm)
@@ -119,6 +129,7 @@ fun GarmentCard(
     onToggle: (() -> Unit)?,
     modifier: Modifier = Modifier,
     onEdit: (() -> Unit)? = null,
+    onOpen: (() -> Unit)? = null,
 ) {
     val selected = state.isInDraft(item)
     val replaced = state.replacedBy(item)
@@ -130,7 +141,13 @@ fun GarmentCard(
         else -> item.colorName
     }
 
-    Column(if (onToggle == null) modifier else modifier.toggleable(selected, role = Role.Checkbox) { onToggle() }) {
+    // With a details page the card opens it and only the circle selects. Otherwise the whole card selects.
+    val cardAction = when {
+        onOpen != null -> Modifier.clickable(role = Role.Button, onClick = onOpen)
+        onToggle != null -> Modifier.toggleable(selected, role = Role.Checkbox) { onToggle() }
+        else -> Modifier
+    }
+    Column(modifier.then(cardAction)) {
         Box(
             Modifier
                 .fillMaxWidth()
@@ -144,14 +161,28 @@ fun GarmentCard(
                 Box(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(if (selected) WadrovaColors.Cobalt else WadrovaColors.Warm.copy(alpha = 0.8f))
-                        .then(if (selected) Modifier else Modifier.border(1.dp, WadrovaColors.Charcoal.copy(alpha = 0.15f), CircleShape)),
+                        .size(44.dp)
+                        .then(
+                            if (onOpen == null) {
+                                Modifier
+                            } else {
+                                Modifier
+                                    .toggleable(selected, role = Role.Checkbox) { onToggle() }
+                                    .semantics { contentDescription = "Select ${item.name}" }
+                            },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (selected) Text("✓", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Warm)
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) WadrovaColors.Cobalt else WadrovaColors.Warm.copy(alpha = 0.8f))
+                            .then(if (selected) Modifier else Modifier.border(1.dp, WadrovaColors.Charcoal.copy(alpha = 0.15f), CircleShape)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (selected) Text("✓", style = MaterialTheme.typography.labelLarge, color = WadrovaColors.Warm)
+                    }
                 }
             }
             if (onEdit != null) {
