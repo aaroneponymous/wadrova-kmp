@@ -98,10 +98,10 @@ fun PrimaryNavigationBar(selected: PrimaryTab, onSelect: (PrimaryTab) -> Unit) {
     }
 }
 
-/** A root destination that isn't built yet: only its title. */
+/** A root destination that isn't built yet: only its title, with the brand lockup on Home. */
 @Composable
 fun PlaceholderScreen(tab: PrimaryTab) {
-    Box(
+    Column(
         Modifier
             .fillMaxSize()
             .background(WadrovaColors.Ivory)
@@ -109,6 +109,7 @@ fun PlaceholderScreen(tab: PrimaryTab) {
             .padding(horizontal = 20.dp)
             .padding(top = 12.dp),
     ) {
+        if (tab == PrimaryTab.HOME) WadrovaLockup(height = 28.dp, modifier = Modifier.padding(bottom = 20.dp))
         Text(tab.label, style = MaterialTheme.typography.displaySmall, color = WadrovaColors.Charcoal)
     }
 }

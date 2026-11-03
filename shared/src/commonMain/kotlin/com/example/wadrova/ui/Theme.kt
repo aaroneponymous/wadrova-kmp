@@ -18,7 +18,11 @@ import wadrova.shared.generated.resources.manrope_bold
 import wadrova.shared.generated.resources.manrope_extrabold
 import wadrova.shared.generated.resources.manrope_medium
 
-/** Design tokens carried over from the prototype. */
+/**
+ * Design tokens carried over from the prototype. The brand identity's palette differs slightly:
+ * Graphite #232529 matches [Charcoal], but brand Ivory is #F5F4F0 and brand Cobalt #5A60E8.
+ * Brand artwork keeps its own colours; these UI tokens are unchanged until a deliberate pass.
+ */
 object WadrovaColors {
     val Ivory = Color(0xFFFAFAF8)
     val Warm = Color(0xFFFFFFFF)
