@@ -40,7 +40,7 @@ class BrandIntroStoreTest {
 
     @Test
     fun theFlagLeavesMirrorSettingsAlone() = runTest {
-        val mirror = SqlDelightMirrorRepository(driver, FakeGeneratedImageStore(), "http://default:8787")
+        val mirror = SqlDelightMirrorRepository(driver, FakeGeneratedImageStore(), FakeCredentialStore(), "http://default:8787")
         mirror.saveBackendConfig(BackendConfig("http://mac.local:8787", "token"))
         SqlDelightBrandIntroStore(driver).markIntroSeen()
         assertEquals(BackendConfig("http://mac.local:8787", "token"), mirror.backendConfig())

@@ -38,7 +38,19 @@ These are agreed rules for upcoming features. Some differ from the current code 
 
 ## Privacy
 
-Wardrobes and personal images are private user data. Outside Mirror, personal images never leave the device.
+Wardrobes and personal images are private user data. Personal images leave the device only through Mirror and through Extract from photo, described below.
+
+### Extract from photo (garment import)
+
+- Decided 2026-11-03: there is no separate consent or submit step. Choosing a photo under Add a piece › Extract from photo uploads it; the privacy disclosure is part of signup (not built yet). The Add a piece sheet and the import page say plainly that the photo is uploaded and that nothing is added to the wardrobe until the user reviews and saves.
+- The uploaded bytes are the 1600 px re-encoded display copy, so no location or camera metadata is sent. The photo goes to the Wadrova backend (`wadrova-backend`, `/v1/imports`) for SAM 3 segmentation, never to OpenAI.
+- Detected pieces are never added automatically. Segmentation finds regions; it is not reliable recognition of category, colour, fabric, brand or style, and the app must not present it as such.
+- **Not built yet:** server-side deletion and retention. The server keeps uploaded photos and results, including after a cancel. Until those controls exist, integration testing uses only non-personal photos (such as the CC0 test photos outside the repository).
+
+### Credentials
+
+- Backend tokens (the Mirror development token and the Wadrova access token) are kept in the iOS Keychain (this device only) or, on Android, in files under `noBackupFilesDir` encrypted with an Android Keystore key. They are never in the database, logs, URLs or error messages. Earlier versions kept the Mirror token in `app_setting`; it is moved on first read.
+- Until sign-in exists, the Wadrova access token is an operator-issued development token entered on the import's development connection page. The address must be https.
 
 ### Mirror and OpenAI
 
@@ -53,5 +65,5 @@ Wardrobes and personal images are private user data. Outside Mirror, personal im
 - Garment photos come from the system photo picker, so the app requests no photo-library permission.
 - The app stores only re-encoded copies: a 1600 px display image and a 640 px thumbnail. The original file and its metadata, including location, are not kept.
 - Android stores photos in `noBackupFilesDir`, which Auto Backup excludes. iOS stores them in a folder marked `NSURLIsExcludedFromBackupKey`.
-- The database's backup behavior is unchanged, so it can still be backed up. It holds garment names, details, saved looks, and opaque photo ids, but no images.
+- The database's backup behavior is unchanged, so it can still be backed up. It holds garment names, details, saved looks, garment-import records (states, server ids, photo hashes), the backend addresses and opaque photo ids, but no images or tokens.
 - After a restore, a garment can refer to a photo that isn't on the device. The app then shows its illustration, and the user can add the photo again.

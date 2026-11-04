@@ -72,6 +72,8 @@ data class MirrorUiState(
     val model: ApprovedModel? = null,
     val tryOns: List<TryOnResult> = emptyList(),
     val config: BackendConfig = BackendConfig("", ""),
+    /** A new token typed in Settings. The saved token is never put back into a field; blank keeps it. */
+    val tokenDraft: String = "",
     val connectionMessage: String? = null,
     val checkingConnection: Boolean = false,
     val create: CreateModelState? = null,
@@ -483,11 +485,16 @@ class MirrorViewModel(
         state = state.copy(config = config, connectionMessage = null)
     }
 
+    fun updateTokenDraft(token: String) {
+        state = state.copy(tokenDraft = token, connectionMessage = null)
+    }
+
     /** Saves the settings and checks the backend's configuration. This never contacts OpenAI. */
     fun saveConfigAndCheck() {
         // A pasted address or token often carries stray whitespace, which isn't valid in a header.
-        val config = state.config.let { BackendConfig(it.url.trim(), it.token.trim()) }
-        state = state.copy(config = config, checkingConnection = true, connectionMessage = null)
+        val token = state.tokenDraft.trim().ifEmpty { state.config.token.trim() }
+        val config = BackendConfig(state.config.url.trim(), token)
+        state = state.copy(config = config, tokenDraft = "", checkingConnection = true, connectionMessage = null)
         viewModelScope.launch {
             val message = try {
                 repository.saveBackendConfig(config)

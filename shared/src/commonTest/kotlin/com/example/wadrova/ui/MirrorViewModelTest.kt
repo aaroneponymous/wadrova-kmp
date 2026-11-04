@@ -652,4 +652,24 @@ class MirrorViewModelTest {
         assertEquals(BackendConfig("http://192.168.1.5:8787", "pasted-token"), viewModel.state.config)
         assertEquals(BackendConfig("http://192.168.1.5:8787", "pasted-token"), repository.saved)
     }
+
+    @Test
+    fun theSavedTokenIsNeverPutBackIntoTheFieldAndABlankDraftKeepsIt() {
+        val viewModel = viewModel()
+        assertEquals("token", viewModel.state.config.token)
+        assertEquals("", viewModel.state.tokenDraft)
+        viewModel.updateConfig(viewModel.state.config.copy(url = "http://mac.local:8787"))
+        viewModel.saveConfigAndCheck()
+        assertEquals(BackendConfig("http://mac.local:8787", "token"), repository.saved)
+    }
+
+    @Test
+    fun aTypedTokenReplacesTheSavedOneAndTheFieldEmptiesAgain() {
+        val viewModel = viewModel()
+        viewModel.updateTokenDraft(" rotated-token\n")
+        viewModel.saveConfigAndCheck()
+        assertEquals(BackendConfig("http://backend", "rotated-token"), repository.saved)
+        assertEquals("rotated-token", viewModel.state.config.token)
+        assertEquals("", viewModel.state.tokenDraft)
+    }
 }

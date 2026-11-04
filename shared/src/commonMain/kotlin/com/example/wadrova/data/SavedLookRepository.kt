@@ -37,6 +37,10 @@ data class LocalRepositories(
     val mirror: MirrorRepository,
     val mirrorBackend: MirrorBackend,
     val brandIntro: BrandIntroStore,
+    val credentials: CredentialStore,
+    val garmentImports: GarmentImportRepository,
+    val wadrovaApi: WadrovaApi,
+    val backgroundGrace: BackgroundGrace,
 )
 
 @OptIn(ExperimentalUuidApi::class)

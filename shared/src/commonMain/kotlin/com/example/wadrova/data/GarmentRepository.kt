@@ -44,7 +44,7 @@ interface GarmentRepository {
     /** Sets or clears the approved extracted image. The photo is untouched, and a previous extraction is deleted. */
     suspend fun setExtractedImage(id: String, imageId: String?): UserGarment
 
-    /** Deletes photo files no garment refers to, such as those left by a crash mid-edit. */
+    /** Deletes photo files no garment or garment import refers to, such as those left by a crash mid-edit. */
     suspend fun removeUnreferencedPhotos()
 }
 
@@ -65,7 +65,8 @@ class SqlDelightGarmentRepository(
     private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : GarmentRepository {
-    private val queries = WadrovaDatabase(driver).garmentQueries
+    private val database = WadrovaDatabase(driver)
+    private val queries = database.garmentQueries
 
     override suspend fun getAll(): List<UserGarment> = withContext(dispatcher) {
         queries.selectGarments().executeAsList().mapNotNull { it.toDomain() }
@@ -141,8 +142,11 @@ class SqlDelightGarmentRepository(
         }
     }
 
+    /** A garment import's source photo counts as referenced: it's the exact upload and stays until the import is removed. */
     override suspend fun removeUnreferencedPhotos() = withContext(dispatcher) {
-        val referenced = queries.selectPhotoIds().executeAsList().toSet()
+        val referenced = queries.transactionWithResult {
+            queries.selectPhotoIds().executeAsList() + database.garmentImportQueries.selectImportPhotoIds().executeAsList()
+        }.toSet()
         (photos.storedIds() - referenced).forEach { deleteQuietly(it) }
     }
 

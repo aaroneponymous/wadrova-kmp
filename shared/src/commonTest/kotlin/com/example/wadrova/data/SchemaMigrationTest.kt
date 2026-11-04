@@ -111,6 +111,61 @@ private object SchemaV3 : SqlSchema<QueryResult.Value<Unit>> {
     ): QueryResult.Value<Unit> = QueryResult.Unit
 }
 
+/** Version 4 added extraction, Mirror and settings, with the Mirror token still in app_setting. */
+private object SchemaV4 : SqlSchema<QueryResult.Value<Unit>> {
+    override val version = 4L
+
+    override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
+        SchemaV3.create(driver)
+        driver.execute(null, "ALTER TABLE user_garment ADD COLUMN extracted_image_id TEXT", 0)
+        driver.execute(
+            null,
+            """
+            CREATE TABLE mirror_model (
+                model_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                image_id TEXT NOT NULL,
+                generation_model TEXT NOT NULL,
+                generation_quality TEXT NOT NULL,
+                approved_at INTEGER NOT NULL,
+                PRIMARY KEY (model_id, version)
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
+            CREATE TABLE try_on_result (
+                id TEXT NOT NULL PRIMARY KEY,
+                model_id TEXT NOT NULL,
+                model_version INTEGER NOT NULL,
+                garment_id TEXT NOT NULL,
+                source_image_id TEXT NOT NULL,
+                source_image_kind TEXT NOT NULL,
+                generation_model TEXT NOT NULL,
+                generation_quality TEXT NOT NULL,
+                result_image_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(null, "CREATE TABLE app_setting (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL)", 0)
+        driver.execute(null, "UPDATE user_garment SET extracted_image_id = 'extracted-1'", 0)
+        driver.execute(null, "INSERT INTO app_setting VALUES ('mirror_backend_url', 'http://mac.local:8787')", 0)
+        driver.execute(null, "INSERT INTO app_setting VALUES ('mirror_backend_token', 'legacy-token')", 0)
+        return QueryResult.Unit
+    }
+
+    override fun migrate(
+        driver: SqlDriver,
+        oldVersion: Long,
+        newVersion: Long,
+        vararg callbacks: AfterVersion,
+    ): QueryResult.Value<Unit> = QueryResult.Unit
+}
+
 class SchemaMigrationTest {
     private val databaseName = "migration_test"
 
@@ -194,7 +249,7 @@ class SchemaMigrationTest {
             val images = FakeGeneratedImageStore()
             val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo-1")), images)
             val looks = SqlDelightSavedLookRepository(driver)
-            val mirror = SqlDelightMirrorRepository(driver, images, "http://default")
+            val mirror = SqlDelightMirrorRepository(driver, images, FakeCredentialStore(), "http://default")
 
             val garment = garments.getAll().single()
             assertEquals("photo-1", garment.photoId)
@@ -205,6 +260,36 @@ class SchemaMigrationTest {
             assertEquals(emptyList(), mirror.tryOns())
             assertEquals("http://default", mirror.backendConfig().url)
             assertEquals("extracted", garments.setExtractedImage("user-1", "extracted").extractedImageId)
+        } finally {
+            driver.close()
+        }
+    }
+
+    @Test
+    fun versionFourDatabaseUpgradesWithEverythingIntactAndImportsReady() = runTest {
+        val oldDriver = openTestDatabase(databaseName, SchemaV4)
+        oldDriver.executeQuery(null, "SELECT COUNT(*) FROM user_garment", { QueryResult.Value(it.next().value) }, 0)
+        oldDriver.close()
+
+        val driver = openTestDatabase(databaseName)
+        try {
+            val photos = FakePhotoStore(mutableSetOf("photo-1", "import-photo", "stray"))
+            val credentials = FakeCredentialStore()
+            val garments = SqlDelightGarmentRepository(driver, photos, FakeGeneratedImageStore())
+            val mirror = SqlDelightMirrorRepository(driver, FakeGeneratedImageStore(), credentials, "http://default")
+            val imports = SqlDelightGarmentImportRepository(driver)
+
+            val garment = garments.getAll().single()
+            assertEquals("photo-1", garment.photoId)
+            assertEquals("extracted-1", garment.extractedImageId)
+            assertEquals(listOf("shirt", "retired-piece", "user-1"), SqlDelightSavedLookRepository(driver).getAll().single().garmentIds)
+            assertEquals(BackendConfig("http://mac.local:8787", "legacy-token"), mirror.backendConfig())
+            assertEquals("legacy-token", credentials.values[Credential.MIRROR_DEV_TOKEN])
+
+            assertEquals(emptyList(), imports.getAll())
+            imports.createOrReuse("kmp-imp-1", "import-photo", "ab".repeat(32), 10)
+            garments.removeUnreferencedPhotos()
+            assertEquals(setOf("photo-1", "import-photo"), photos.stored)
         } finally {
             driver.close()
         }

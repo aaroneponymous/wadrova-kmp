@@ -54,10 +54,13 @@ val START_TAB = PrimaryTab.MIRROR
 fun placeholderBackTab(tab: PrimaryTab, openedFromWardrobe: Boolean): PrimaryTab =
     if (tab == PrimaryTab.STYLIST && openedFromWardrobe) PrimaryTab.WARDROBE else START_TAB
 
-/** The bar only shows on a tab's root screen, so a workflow can't be left half-finished behind another tab. */
-fun showsPrimaryBar(tab: PrimaryTab, screen: Screen, mirrorRoute: MirrorRoute, extracting: Boolean): Boolean = when {
+/**
+ * The bar only shows on a tab's root screen, so a workflow can't be left half-finished behind another tab.
+ * [importOpen] is an import page over the Wardrobe; Back leads to the Wardrobe, where the bar is.
+ */
+fun showsPrimaryBar(tab: PrimaryTab, screen: Screen, mirrorRoute: MirrorRoute, extracting: Boolean, importOpen: Boolean = false): Boolean = when {
     extracting -> false
-    tab == PrimaryTab.WARDROBE -> screen == Screen.WARDROBE
+    tab == PrimaryTab.WARDROBE -> screen == Screen.WARDROBE && !importOpen
     tab == PrimaryTab.MIRROR -> mirrorRoute == MirrorRoute.HOME
     else -> true
 }

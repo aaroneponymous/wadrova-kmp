@@ -25,7 +25,9 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.wadrova.data.LocalRepositories
 import com.example.wadrova.ui.BrandSplash
@@ -34,6 +36,13 @@ import com.example.wadrova.ui.CreateModelScreen
 import com.example.wadrova.ui.ExtractionScreen
 import com.example.wadrova.ui.GarmentDetailsScreen
 import com.example.wadrova.ui.GarmentFormScreen
+import com.example.wadrova.ui.GarmentImportViewModel
+import com.example.wadrova.ui.ImportConnectionScreen
+import com.example.wadrova.ui.ImportDialogs
+import com.example.wadrova.ui.ImportProgressScreen
+import com.example.wadrova.ui.ImportReviewPlaceholder
+import com.example.wadrova.ui.ImportRoute
+import com.example.wadrova.ui.LeaveForegroundEffect
 import com.example.wadrova.ui.OutfitBuilderScreen
 import com.example.wadrova.ui.LocalPhotoLoader
 import com.example.wadrova.ui.MirrorDialogs
@@ -54,6 +63,7 @@ import com.example.wadrova.ui.WardrobeScreen
 import com.example.wadrova.ui.WardrobeViewModel
 import com.example.wadrova.ui.placeholderBackTab
 import com.example.wadrova.ui.primaryBarInsets
+import com.example.wadrova.ui.rememberPhotoPicker
 import com.example.wadrova.ui.rememberReducedMotion
 import com.example.wadrova.ui.showsPrimaryBar
 
@@ -78,8 +88,22 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
             onGarmentChanged = { garment -> viewModel.update { it.garmentChangedInPlace(garment) } },
         )
     }
+    val garmentImports = viewModel {
+        GarmentImportViewModel(
+            repositories.garmentImports,
+            repositories.wadrovaApi,
+            repositories.credentials,
+            repositories.photos,
+            repositories.backgroundGrace,
+        )
+    }
     val state = viewModel.state
     val mirrorState = mirror.state
+    val importState = garmentImports.state
+    // Imports are checked on returning to the app; polling stops while it's in the background.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { garmentImports.onForeground() }
+    LeaveForegroundEffect { garmentImports.onBackground() }
+    val pickAnotherPhoto = rememberPhotoPicker(garmentImports::onPhotoPicked)
     var tab by rememberSaveable { mutableStateOf(START_TAB) }
     var stylistFromWardrobe by rememberSaveable { mutableStateOf(false) }
     val tabStates = rememberSaveableStateHolder()
@@ -90,7 +114,8 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
 
     WadrovaTheme {
         CompositionLocalProvider(LocalPhotoLoader provides mirror.imageLoader) {
-            val showBar = showsPrimaryBar(tab, state.screen, mirrorState.route, mirrorState.extraction != null)
+            val importOpen = importState.route != null && state.screen == Screen.WARDROBE
+            val showBar = showsPrimaryBar(tab, state.screen, mirrorState.route, mirrorState.extraction != null, importOpen)
             Column(Modifier.fillMaxSize().background(WadrovaColors.Ivory)) {
                 val barInsets = primaryBarInsets.only(WindowInsetsSides.Bottom)
                 Box(Modifier.weight(1f).fillMaxWidth().then(if (showBar) Modifier.consumeWindowInsets(barInsets) else Modifier)) {
@@ -101,6 +126,14 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
                                 PlatformBackHandler { mirror.keepOriginal() }
                                 ExtractionScreen(mirrorState, mirror)
                             }
+                            tab == PrimaryTab.WARDROBE && importOpen -> {
+                                PlatformBackHandler { garmentImports.close() }
+                                when (importState.route) {
+                                    is ImportRoute.Review -> ImportReviewPlaceholder(importState, garmentImports)
+                                    is ImportRoute.Connection -> ImportConnectionScreen(importState, garmentImports)
+                                    else -> ImportProgressScreen(importState, garmentImports, pickAnotherPhoto)
+                                }
+                            }
                             tab == PrimaryTab.WARDROBE -> when (state.screen) {
                                 Screen.WARDROBE -> {
                                     PlatformBackHandler {
@@ -110,7 +143,16 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
                                             tab = START_TAB
                                         }
                                     }
-                                    WardrobeScreen(state, viewModel::update, viewModel::loadRecords, itemsGrid, outfitsGrid) {
+                                    WardrobeScreen(
+                                        state,
+                                        viewModel::update,
+                                        viewModel::loadRecords,
+                                        itemsGrid,
+                                        outfitsGrid,
+                                        importState.imports,
+                                        garmentImports::open,
+                                        garmentImports::onPhotoPicked,
+                                    ) {
                                         stylistFromWardrobe = true
                                         tab = PrimaryTab.STYLIST
                                     }
@@ -175,6 +217,7 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
         }
 
         MirrorDialogs(mirrorState, mirror)
+        ImportDialogs(importState, garmentImports)
 
         state.pendingReplacement?.let { pending ->
             val replaced = pending.replaced.joinToString(" and ") { it.name }

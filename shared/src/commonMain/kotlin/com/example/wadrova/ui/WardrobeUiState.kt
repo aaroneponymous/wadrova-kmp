@@ -134,6 +134,8 @@ data class WardrobeUiState(
     val saveNotice: SaveNotice? = null,
     /** A just-saved look that Your Outfits scrolls to next time it shows, so a save never looks lost. */
     val revealLookId: String? = null,
+    /** The Add a piece sheet: extract pieces from a photo, or add one manually. */
+    val choosingAddMethod: Boolean = false,
 ) {
     private val garments = items.map { it.garment }
 
@@ -382,7 +384,12 @@ data class WardrobeUiState(
 
     fun showArchivedPieces(show: Boolean): WardrobeUiState = copy(showArchived = show)
 
-    fun openAddGarment(): WardrobeUiState = copy(screen = Screen.GARMENT_FORM, garmentForm = GarmentFormState())
+    fun openAddGarment(): WardrobeUiState =
+        copy(screen = Screen.GARMENT_FORM, garmentForm = GarmentFormState(), choosingAddMethod = false)
+
+    fun openAddPieceChooser(): WardrobeUiState = copy(choosingAddMethod = true)
+
+    fun closeAddPieceChooser(): WardrobeUiState = copy(choosingAddMethod = false)
 
     /**
      * From the builder's picker when there's nothing to pick: leaves the builder the usual way, so a

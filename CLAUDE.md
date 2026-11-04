@@ -13,11 +13,11 @@ Sibling folders under `../` (only this one is part of this repository):
 In this repo:
 - `shared/src/commonMain/kotlin/com/example/wadrova/`
   - `domain/`: pure Kotlin rules (outfit composition, garments, looks). No Compose or platform code.
-  - `data/`: SQLDelight repositories, photo and generated-image stores, the Mirror backend client (Ktor).
+  - `data/`: SQLDelight repositories, photo and generated-image stores, credential store, the Mirror backend client and the Wadrova API client (Ktor).
   - `ui/`: Compose screens plus their state. `App.kt` wires tabs, screens and global dialogs.
-- `shared/src/commonMain/sqldelight/`: `.sq` schemas and `1.sqm`–`3.sqm` migrations (database version 4).
+- `shared/src/commonMain/sqldelight/`: `.sq` schemas and `1.sqm`–`4.sqm` migrations (database version 5).
 - `shared/src/commonMain/composeResources/`: fonts (Manrope, Instrument Serif), generated brand vectors and the splash Lottie files (`files/`).
-- `shared/src/{androidMain,iosMain}/`: photo stores, photo pickers, back handling, database drivers.
+- `shared/src/{androidMain,iosMain}/`: photo stores, credential stores (Keystore, Keychain), SHA-256, photo pickers, back handling, database drivers.
 - `androidApp/`, `iosApp/`: thin platform entry points. `mirror_backend/`: local FastAPI server for Mirror (see its README).
 - `tools/brand/generate_brand_assets.py`: regenerates every derived brand file from `../wadrova-brand-svg/`.
 
@@ -53,15 +53,15 @@ Android touch checks in past milestones used the `Pixel_9_Pro` AVD started with 
 
 ## Privacy, credentials and local data
 
-- Never print, log, commit or copy `.env` values, the OpenAI key or the `X-Wadrova-Dev-Token`. The app stores the token in its local database `app_setting` table, so never dump that table.
+- Never print, log, commit or copy `.env` values, the OpenAI key, the `X-Wadrova-Dev-Token` or a `wdr_` access token. Tokens live in the Keychain / Keystore-encrypted files; an older install may still hold the Mirror token in `app_setting` until Mirror first reads it, so never dump that table. Mirror Settings shows its token in plain text, so never dump that screen's UI tree either.
 - Never make OpenAI or other paid API calls unless the user explicitly asks. Mirror's live generation is off unless enabled in the backend's `.env`.
 - Wardrobes, photos and databases on the user's devices are private. Test with isolated data (cleared emulator app, synthetic garments and images). Don't copy them off a device without explicit permission, and delete any copy afterwards.
-- Personal images leave the device only through Mirror, after an explicit consent dialog.
+- Personal images leave the device only through Mirror (after an explicit consent dialog) and Extract from photo (uploads on pick by product decision; see `docs/product.md`). Test imports only with non-personal photos: the server keeps uploads, and deletion isn't built.
 - Keep `com.example.wadrova` as the application ID unless asked.
 
 ## Workflow
 
 - Read the relevant code and check `git status` and recent commits before starting. Don't assume a previous session finished something.
-- Work on a feature branch. Commit, merge, rebase or push only when the user asks. This repo has no remote configured.
+- Work on a feature branch. Commit, merge, rebase or push only when the user asks. The remote is `origin` (private GitHub `wadrova-kmp`).
 - Never claim a build, test, or device check passed unless you ran it. Report emulator, simulator and physical-device results separately; iOS interaction has mostly been verified only by the user on their iPhone.
 - Flag ambiguous product rules instead of inventing behavior, and keep honesty rules: label samples, never fake try-on results, products or prices.

@@ -15,6 +15,7 @@ class MirrorRepositoryTest {
     private val databaseName = "mirror_test"
     private val images = FakeGeneratedImageStore()
     private val photos = FakePhotoStore(mutableSetOf("photo", "photo-2"))
+    private val credentials = FakeCredentialStore()
     private val generation = GeneratedImage(ByteArray(1), "model-x", "high")
     private val jacket = GarmentDetails("Jacket", GarmentCategory.OUTERWEAR, "Green")
     private lateinit var driver: SqlDriver
@@ -23,7 +24,7 @@ class MirrorRepositoryTest {
 
     private fun open() {
         driver = openTestDatabase(databaseName)
-        mirror = SqlDelightMirrorRepository(driver, images, "http://default:8787")
+        mirror = SqlDelightMirrorRepository(driver, images, credentials, "http://default:8787")
         garments = SqlDelightGarmentRepository(driver, photos, images)
     }
 
@@ -173,4 +174,51 @@ class MirrorRepositoryTest {
         open()
         assertEquals(BackendConfig("http://192.168.1.5:8787", "token"), mirror.backendConfig())
     }
+
+    @Test
+    fun theTokenIsKeptInSecureStorageNotTheDatabase() = runTest {
+        mirror.saveBackendConfig(BackendConfig("http://mac.local:8787", "secret"))
+        assertEquals("secret", credentials.values[Credential.MIRROR_DEV_TOKEN])
+        assertNull(setting("mirror_backend_token"))
+        assertEquals("http://mac.local:8787", setting("mirror_backend_url"))
+
+        mirror.saveBackendConfig(BackendConfig("http://mac.local:8787", " "))
+        assertNull(credentials.values[Credential.MIRROR_DEV_TOKEN])
+        assertEquals(BackendConfig("http://mac.local:8787", ""), mirror.backendConfig())
+    }
+
+    @Test
+    fun aTokenFromAnEarlierVersionMovesToSecureStorage() = runTest {
+        val queries = WadrovaDatabase(driver).mirrorQueries
+        queries.upsertSetting("mirror_backend_url", "http://mac.local:8787")
+        queries.upsertSetting("mirror_backend_token", "legacy")
+
+        assertEquals(BackendConfig("http://mac.local:8787", "legacy"), mirror.backendConfig())
+        assertEquals("legacy", credentials.values[Credential.MIRROR_DEV_TOKEN])
+        assertNull(setting("mirror_backend_token"))
+        driver.close()
+        open()
+        assertEquals(BackendConfig("http://mac.local:8787", "legacy"), mirror.backendConfig())
+    }
+
+    @Test
+    fun anEarlierTokenStaysUsableWhenSecureStorageRefusesIt() = runTest {
+        WadrovaDatabase(driver).mirrorQueries.upsertSetting("mirror_backend_token", "legacy")
+        credentials.failure = CredentialStoreException("refused")
+
+        assertEquals("legacy", mirror.backendConfig().token)
+        assertEquals("legacy", setting("mirror_backend_token"))
+
+        credentials.failure = null
+        assertEquals("legacy", mirror.backendConfig().token)
+        assertNull(setting("mirror_backend_token"))
+    }
+
+    @Test
+    fun anUnreadableSecureStoreOpensMirrorWithoutAToken() = runTest {
+        credentials.failure = CredentialStoreException("locked")
+        assertEquals(BackendConfig("http://default:8787", ""), mirror.backendConfig())
+    }
+
+    private fun setting(key: String): String? = WadrovaDatabase(driver).mirrorQueries.selectSetting(key).executeAsOneOrNull()
 }

@@ -4,7 +4,7 @@ Last updated 2026-11-03. Describes only what the code, tests and recorded checks
 
 ## Branches
 
-There is no Git remote; nothing has been pushed.
+The remote is `origin` (private GitHub `wadrova-kmp`). `fe5a92a` and `fb0f152` on `feature/brand-identity-integration` were not pushed as of 2026-11-03; the other branches match `origin`.
 
 | Branch | Head | Contents |
 |---|---|---|
@@ -12,6 +12,7 @@ There is no Git remote; nothing has been pushed.
 | `screen-wardrobe` | `4888e98` | Completed Wardrobe and Outfit Builder checkpoint. Not merged into `main`. |
 | `feature/brand-identity-integration` | Phase 1 `fe5a92a`, then the Phase 2 splash and sample-wardrobe removal commit | Brand Identity Phase 1 and Phase 2 splash, and the sample wardrobe removed; all pending physical-iPhone checks. Not merged. |
 | `foundation`, `feature/wardrobe-outfit-builder`, `feature/openai-mirror-mvp` | older | Earlier milestones, superseded by the branches above. |
+| `feature/m4.4-garment-import` | from `fb0f152`, uncommitted | M4.4 Add a piece › Extract from photo and durable garment imports (below). Awaiting review; nothing committed. |
 
 ### Brand Identity Phase 1 commit (on `feature/brand-identity-integration`)
 
@@ -40,6 +41,29 @@ The app no longer ships sample garments. They were 15 illustrated pieces defined
   - **Emulator, upgrade from the Phase 1 build:** a look mixing a photographed user piece with two samples kept its user piece and photo. It showed two unavailable pieces and saved once they were removed, and the change survived a restart.
   - **Emulator, fresh install:** empty Your Items, Your Outfits and picker; first piece added with a photo from the picker route; first look saved; both persisted across a restart. With every piece archived, the archived list is still reachable.
   - **iOS:** builds and tests only; no Simulator interaction.
+
+## M4.4: Extract from photo and durable garment imports (implemented, awaiting review)
+
+Built against `wadrova-backend` `3460189` (`docs/API.md`, Mobile imports). On 2026-11-03 the deployed Mac API reported `schema_revision` `0007`.
+
+- **Entry point:** the Wardrobe's + button and the empty-state "Add a piece" open a sheet: Extract from photo or Add manually (the existing form, unchanged). The builder's empty-picker "Add a piece" still goes straight to the manual form.
+- **Picking starts the import.** No consent, preview or submit step. Cancelling the picker creates nothing; an unreadable photo shows "Couldn't use this photo". No camera capture (no camera integration exists).
+- **Durability:** the photo is stored through `GarmentPhotoStore` (oriented, metadata-free 1600 px JPEG plus thumbnail). Its display bytes are read back, hashed (SHA-256) and recorded in `garment_import` (migration `4.sqm`, database version 5) before any network work. Those exact bytes are the upload; a changed or missing file is never sent. Picking the same bytes while an import is open reopens it. Garment-photo cleanup now keeps import photos.
+- **Upload:** `POST /v1/imports` with the raw body, `Idempotency-Key` and `X-Client-Import-Ref` = the local id (`kmp-imp-<uuid>`), and `X-Wadrova-SHA256`. Retries reuse the same key and bytes, so a lost response is resolved by the server's replay. Transport and 5xx errors back off exponentially (2 s doubling to 60 s, with jitter) and stop after 6 consecutive failures; they resume on the next foreground, launch, saved connection or "Try again". 401 stops and asks to reconnect; 400/413/409 rejects the upload for good.
+- **Processing:** `GET /v1/imports/{id}` polling at the server's `poll_after_seconds` (2–30 s), foreground only. queued/processing → "Finding your pieces", ready → "Ready to review · N pieces found", failed → the server's safe message, 404 → "No longer available".
+- **Leaving and relaunch:** imports keep going when the page is left; the Wardrobe shows them under Imports at the top of Your Items. At launch, `UPLOADING` rows go back to waiting and every import is resumed. Polling pauses in the background. A running upload gets iOS's background-task grace (about 30 s); nothing runs after a force-quit, and the next launch resends.
+- **Cancel / remove:** recorded first (`CANCEL_PENDING`), then `POST /v1/imports/{id}/cancel`. An import never sent is removed locally. One whose upload response was lost is found through `GET /v1/imports?state=active` by `client_ref`. A failed import is cancelled on the server too, which is how it's dismissed there. Removing deletes the local photo copy; the server keeps its copy (no deletion API yet).
+- **Review:** "Review pieces" opens a placeholder for M4.5 that shows the server's piece count and says nothing has been added. No candidates are fetched or shown.
+- **Credentials:** `CredentialStore` with iOS Keychain (`AfterFirstUnlockThisDeviceOnly`) and Android Keystore AES-GCM files under `noBackupFilesDir`. The Mirror token moved out of `app_setting` (on first read). The Wadrova address (https only) and token are entered on a development connection page; the token is never shown again and is checked with `GET /v1/me`.
+- **Cancel without the server:** an import whose upload attempts were all definitely refused (401 or another 4xx, which store nothing) is removed locally. Only an attempt with an unknown outcome (lost response, timeout, 5xx, killed process) makes a cancel go to the server.
+- **Mirror token (2026-11-04):** the token was exposed in an agent session, so it was rotated in `mirror_backend/.env` (now mode 600) and the backend restarted. Mirror Settings now masks the token field and never refills it with the saved token (blank keeps it), so the token stays out of the screen and the accessibility tree.
+- **Verified (2026-11-04):**
+  - **Builds and tests:** `assembleDebug`, `compileKotlinIosArm64` and `xcodebuild` (iPhone 17 simulator) pass. 335 host, 345 iOS simulator and 348 connected-device (`Pixel_9_Pro`) tests pass.
+  - **Android emulator:** upgrade over the earlier install kept the garment and photo, and the Mirror token moved to the Keystore. Rotated Mirror token entered through the masked field: "Connected and ready" (status only, no OpenAI call), still connected after a force-stop and relaunch, and the token value never appeared in the UI tree. Add a piece sheet; picker cancel creates nothing; CC0 photo with no connection stays local; import survives a force-stop; Back chain; cancelling an unsent import removes it and its photo. The emulator reached the deployed API over Tailscale HTTPS; the revoked drill token got 401 and nothing was uploaded.
+  - **iOS simulator (dedicated "Wadrova M4.4 Test" device, driven by a throwaway XCUITest harness outside the repo):** the pre-M4.4 build (`fb0f152`) saved a garment with a photo; installing this build over it kept both. Add a piece sheet; picker cancel creates nothing; manual add still opens the form; picking the CC0 photo with no token stays local; the import survives terminate and relaunch. **Keychain, in the real app:** a fake token was written, read back after relaunch ("saved; leave blank to keep"), refused by the server (401, nothing created), removed, and still gone after relaunch. This found a bug fixed here: every Keychain read failed with errSecParam (-50) because `kSecReturnData`'s boolean arrived as the integer 1 through Kotlin bridging. It's now added on the CF side.
+  - **Keychain unit tests:** still can't run in the Kotlin/Native simulator test host (errSecNotAvailable, -25291; an ad-hoc entitlement-signed test binary is refused by the simulator). The in-app check above covers it.
+  - **Live upload (2026-11-04, Android emulator, `kmp-app-dev` dev user, CC0 street-style photo, 2 imports, worker running):** `GET /v1/me` worked from the Mac and through the app ("Connected as kmp-app-dev."). The upload started on its own once the connection was saved, and the import reached ready with 7 pieces within seconds. The server's original matched the app's stored 1600 px copy (same SHA-256, 610,388 bytes), `client_ref` was the local id, and processing took 1 attempt. Replaying the same key and bytes from the Mac returned 200 with `Idempotent-Replay: true` and the same import, and there was still 1 import. The import survived a force-stop and relaunch, and Review pieces opened the placeholder. Discard cancelled it on the server and removed it locally with its photo. A second import showed "in line to be processed" (queued) and then reached ready before it could be cancelled, so it was discarded the same way. Both imports are cancelled; none was finalized.
+  - **Not done:** any physical iPhone or Android device check.
 
 ## Wardrobe and Outfit Builder (implemented)
 

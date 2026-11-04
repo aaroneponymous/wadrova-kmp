@@ -1,0 +1,55 @@
+-- Photos sent for garment extraction. The server owns the processing and its results; this row keeps what the app
+-- needs to resend, follow and recover one import. id is also the upload's Idempotency-Key, so every retry of an
+-- import is the same request. The photo is the exact upload: source_sha256 is the hash of its display rendition.
+CREATE TABLE garment_import (
+    id TEXT NOT NULL PRIMARY KEY,
+    photo_id TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    source_byte_size INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    upload_attempts INTEGER NOT NULL,
+    problem TEXT,
+    problem_message TEXT,
+    server_import_id TEXT UNIQUE,
+    server_session_id TEXT,
+    server_status TEXT,
+    candidate_count INTEGER,
+    poll_after_seconds INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX garment_import_source_sha256 ON garment_import(source_sha256);
+
+selectImports:
+SELECT * FROM garment_import ORDER BY created_at DESC, id;
+
+selectImport:
+SELECT * FROM garment_import WHERE id = ?;
+
+-- An import of the same bytes that's still in progress or waiting for review, so picking a photo twice reopens it.
+selectOpenImportBySha256:
+SELECT * FROM garment_import
+WHERE source_sha256 = ? AND state IN ('UPLOAD_PENDING', 'UPLOADING', 'PROCESSING', 'READY')
+ORDER BY created_at DESC, id
+LIMIT 1;
+
+selectImportPhotoIds:
+SELECT photo_id FROM garment_import;
+
+insertImport:
+INSERT INTO garment_import (id, photo_id, source_sha256, source_byte_size, state, upload_attempts, created_at, updated_at)
+VALUES (?, ?, ?, ?, 'UPLOAD_PENDING', 0, ?, ?);
+
+updateImport:
+UPDATE garment_import
+SET state = ?, upload_attempts = ?, problem = ?, problem_message = ?, server_import_id = ?, server_session_id = ?,
+    server_status = ?, candidate_count = ?, poll_after_seconds = ?, updated_at = ?
+WHERE id = ?;
+
+-- A process that died mid-upload can't still be sending, so those uploads go back to waiting.
+resetInterruptedUploads:
+UPDATE garment_import SET state = 'UPLOAD_PENDING', updated_at = ? WHERE state = 'UPLOADING';
+
+deleteImport:
+DELETE FROM garment_import WHERE id = ?;

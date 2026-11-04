@@ -47,6 +47,7 @@ interface MirrorRepository {
 class SqlDelightMirrorRepository(
     driver: SqlDriver,
     private val images: GeneratedImageStore,
+    private val credentials: CredentialStore,
     private val defaultBackendUrl: String,
     private val newId: () -> String = { Uuid.random().toString() },
     private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
@@ -124,17 +125,38 @@ class SqlDelightMirrorRepository(
         imageId?.let { deleteQuietly(it) } ?: Unit
     }
 
+    /**
+     * The token lives in [credentials]. Earlier versions kept it in `app_setting`, which backups can include, so a
+     * token found there is moved over and the row deleted once the secure copy is written.
+     */
     override suspend fun backendConfig(): BackendConfig = withContext(dispatcher) {
-        BackendConfig(
-            url = queries.selectSetting(KEY_BACKEND_URL).executeAsOneOrNull() ?: defaultBackendUrl,
-            token = queries.selectSetting(KEY_BACKEND_TOKEN).executeAsOneOrNull().orEmpty(),
-        )
+        val url = queries.selectSetting(KEY_BACKEND_URL).executeAsOneOrNull() ?: defaultBackendUrl
+        val legacy = queries.selectSetting(LEGACY_KEY_BACKEND_TOKEN).executeAsOneOrNull()
+        if (legacy != null) {
+            try {
+                if (legacy.isNotEmpty()) credentials.write(Credential.MIRROR_DEV_TOKEN, legacy)
+                queries.deleteSetting(LEGACY_KEY_BACKEND_TOKEN)
+            } catch (_: CredentialStoreException) {
+                // Mirror keeps working from the old row; the move is tried again on the next read.
+                return@withContext BackendConfig(url, legacy)
+            }
+            if (legacy.isNotEmpty()) return@withContext BackendConfig(url, legacy)
+        }
+        // An unreadable store reads as "no token": Mirror then asks for one rather than failing to open.
+        val token = try {
+            credentials.read(Credential.MIRROR_DEV_TOKEN).orEmpty()
+        } catch (_: CredentialStoreException) {
+            ""
+        }
+        BackendConfig(url, token)
     }
 
     override suspend fun saveBackendConfig(config: BackendConfig) = withContext(dispatcher) {
+        val token = config.token.trim()
+        if (token.isEmpty()) credentials.delete(Credential.MIRROR_DEV_TOKEN) else credentials.write(Credential.MIRROR_DEV_TOKEN, token)
         queries.transaction {
             queries.upsertSetting(KEY_BACKEND_URL, config.url.trim())
-            queries.upsertSetting(KEY_BACKEND_TOKEN, config.token.trim())
+            queries.deleteSetting(LEGACY_KEY_BACKEND_TOKEN)
         }
     }
 
@@ -159,6 +181,6 @@ class SqlDelightMirrorRepository(
 
     private companion object {
         const val KEY_BACKEND_URL = "mirror_backend_url"
-        const val KEY_BACKEND_TOKEN = "mirror_backend_token"
+        const val LEGACY_KEY_BACKEND_TOKEN = "mirror_backend_token"
     }
 }

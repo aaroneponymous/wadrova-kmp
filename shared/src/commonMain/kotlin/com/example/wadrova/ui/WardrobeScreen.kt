@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.wadrova.domain.GarmentImport
 
 @Composable
 fun WardrobeScreen(
@@ -57,9 +58,13 @@ fun WardrobeScreen(
     onRetryLooks: () -> Unit,
     itemsGrid: LazyGridState,
     outfitsGrid: LazyGridState,
+    imports: List<GarmentImport>,
+    onOpenImport: (String) -> Unit,
+    onExtractPhotoPicked: (PhotoPickResult) -> Unit,
     onStylist: () -> Unit,
 ) {
     val archivedMode = state.isShowingArchived
+    val pickExtractionPhoto = rememberPhotoPicker(onExtractPhotoPicked)
 
     BoxWithConstraints(Modifier.fillMaxSize().background(WadrovaColors.Ivory)) {
         // On short screens, such as landscape phones, the grid needs the title's space.
@@ -72,7 +77,7 @@ fun WardrobeScreen(
             WardrobeViewSwitcher(state.wardrobeView) { view -> update { it.showWardrobeView(view) } }
             Crossfade(state.wardrobeView, Modifier.fillMaxSize(), tween(150)) { view ->
                 when (view) {
-                    WardrobeView.ITEMS -> ItemsView(state, update, archivedMode, itemsGrid)
+                    WardrobeView.ITEMS -> ItemsView(state, update, archivedMode, itemsGrid, imports, onOpenImport)
                     WardrobeView.OUTFITS -> OutfitsView(state, update, onRetryLooks, outfitsGrid)
                 }
             }
@@ -93,10 +98,21 @@ fun WardrobeScreen(
             else -> FloatingActions(
                 onStylist = onStylist,
                 addDescription = "Add a piece",
-                onAdd = { update { it.openAddGarment() } },
+                onAdd = { update { it.openAddPieceChooser() } },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+    }
+
+    if (state.choosingAddMethod) {
+        AddPieceSheet(
+            onExtract = {
+                update { it.closeAddPieceChooser() }
+                pickExtractionPhoto()
+            },
+            onManual = { update { it.openAddGarment() } },
+            onDismiss = { update { it.closeAddPieceChooser() } },
+        )
     }
 }
 
@@ -135,6 +151,8 @@ private fun ItemsView(
     update: ((WardrobeUiState) -> WardrobeUiState) -> Unit,
     archivedMode: Boolean,
     grid: LazyGridState,
+    imports: List<GarmentImport>,
+    onOpenImport: (String) -> Unit,
 ) {
     val visible = if (archivedMode) state.archivedItems else state.itemsIn(state.wardrobeFilter)
     Column(Modifier.fillMaxSize().padding(top = 12.dp)) {
@@ -152,6 +170,11 @@ private fun ItemsView(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
+            if (!archivedMode && imports.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "pending-imports") {
+                    PendingImports(imports, onOpenImport)
+                }
+            }
             items(visible, key = { it.garment.id }) { item ->
                 GarmentCard(
                     item,
@@ -168,7 +191,7 @@ private fun ItemsView(
                         WardrobeEmptyState(
                             if (wardrobeEmpty) null else state.wardrobeFilter,
                             onViewAll = { update { it.filterWardrobe(null) } },
-                            onAdd = if (wardrobeEmpty) ({ update { it.openAddGarment() } }) else null,
+                            onAdd = if (wardrobeEmpty) ({ update { it.openAddPieceChooser() } }) else null,
                         )
                     }
                     // Also under the empty state, so pieces stay restorable when every one is archived.

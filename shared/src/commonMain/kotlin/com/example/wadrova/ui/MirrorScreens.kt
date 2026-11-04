@@ -63,6 +63,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.coerceIn
@@ -79,7 +80,7 @@ import kotlin.math.sin
 private const val PREVIEW_NOTE = "A visual preview only. It doesn't show how something will fit or what size to choose."
 
 @Composable
-private fun MirrorPage(
+internal fun MirrorPage(
     eyebrow: String?,
     lead: String,
     accent: String,
@@ -123,12 +124,12 @@ private fun MirrorPage(
 }
 
 @Composable
-private fun Body(text: String, modifier: Modifier = Modifier) {
+internal fun Body(text: String, modifier: Modifier = Modifier) {
     Text(text, modifier, style = MaterialTheme.typography.bodyMedium, color = WadrovaColors.Ink2)
 }
 
 @Composable
-private fun Small(text: String, modifier: Modifier = Modifier) {
+internal fun Small(text: String, modifier: Modifier = Modifier) {
     Text(text, modifier, style = MaterialTheme.typography.bodySmall, color = WadrovaColors.Ink2)
 }
 
@@ -714,13 +715,15 @@ fun MirrorSettingsScreen(state: MirrorUiState, viewModel: MirrorViewModel) {
             textStyle = MaterialTheme.typography.bodyMedium,
             shape = RoundedCornerShape(14.dp),
         )
+        // Masked, and empty even when a token is saved, so it never shows on screen or in the accessibility tree.
         OutlinedTextField(
-            value = state.config.token,
-            onValueChange = { token -> viewModel.updateConfig(state.config.copy(token = token)) },
+            value = state.tokenDraft,
+            onValueChange = viewModel::updateTokenDraft,
             modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
-            label = { Text("Development token") },
+            label = { Text(if (state.config.token.isNotEmpty()) "Development token (saved; leave blank to keep)" else "Development token") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
             textStyle = MaterialTheme.typography.bodyMedium,
             shape = RoundedCornerShape(14.dp),
         )

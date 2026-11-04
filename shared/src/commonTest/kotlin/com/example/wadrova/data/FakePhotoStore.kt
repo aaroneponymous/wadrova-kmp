@@ -21,7 +21,10 @@ class FakePhotoStore(val stored: MutableSet<String> = mutableSetOf()) : GarmentP
         }
     }
 
-    override suspend fun read(id: String, size: PhotoSize): ByteArray? = if (id in stored) ByteArray(1) else null
+    /** The display bytes of each stored photo. Photos without an entry read as one zero byte. */
+    val contents = mutableMapOf<String, ByteArray>()
+
+    override suspend fun read(id: String, size: PhotoSize): ByteArray? = if (id in stored) contents[id] ?: ByteArray(1) else null
 
     override suspend fun delete(id: String) {
         deleteFailure?.let { throw it }
