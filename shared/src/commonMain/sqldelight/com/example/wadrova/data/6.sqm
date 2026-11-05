@@ -1,0 +1,1 @@
+ALTER TABLE garment_import ADD COLUMN finalize_sent_at INTEGER;

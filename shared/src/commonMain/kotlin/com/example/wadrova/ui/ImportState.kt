@@ -23,6 +23,7 @@ import com.example.wadrova.data.sha256Hex
 import com.example.wadrova.domain.GarmentImport
 import com.example.wadrova.domain.ImportProblem
 import com.example.wadrova.domain.ImportState
+import com.example.wadrova.domain.groupLineages
 import kotlin.random.Random
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -64,6 +65,9 @@ data class ImportUiState(
     val connection: ConnectionForm = ConnectionForm(),
 ) {
     fun import(id: String): GarmentImport? = imports.find { it.id == id }
+
+    /** What Pending Imports lists: everything not yet completed. */
+    val pending: List<GarmentImport> get() = imports.filter { it.state != ImportState.COMPLETED }
 }
 
 /** Plain language for every state. No percentages: the server reports none, so none are shown. */
@@ -73,7 +77,7 @@ fun GarmentImport.status(): ImportStatus = when (state) {
         ImportProblem.ACCESS_REJECTED -> ImportStatus("Reconnect to continue", "Wadrova didn't accept this device's access. Your photo is saved here.", false)
         ImportProblem.OFFLINE -> ImportStatus("Waiting for connection", "Your photo will upload when you're back online.", true)
         ImportProblem.SERVER_UNAVAILABLE -> ImportStatus("Waiting for Wadrova", "Wadrova is temporarily unavailable. We'll try again.", true)
-        null -> ImportStatus("Uploading", "Sending your photo to Wadrova.", true)
+        ImportProblem.FINALIZE_REFUSED, ImportProblem.FINALIZE_INCOMPLETE, null -> ImportStatus("Uploading", "Sending your photo to Wadrova.", true)
     }
     ImportState.PROCESSING -> when (problem) {
         ImportProblem.NOT_CONNECTED, ImportProblem.ACCESS_REJECTED ->
@@ -98,11 +102,32 @@ fun GarmentImport.status(): ImportStatus = when (state) {
         else -> ImportStatus("Cancelling", null, true)
     }
     ImportState.CLOSED -> ImportStatus("No longer available", problemMessage, false)
+    ImportState.FINALIZE_PENDING -> when (problem) {
+        ImportProblem.FINALIZE_REFUSED -> ImportStatus("Saved, not synced", "${problemMessage ?: FINALIZE_REFUSED} Your pieces stay in your wardrobe.", false)
+        ImportProblem.FINALIZE_INCOMPLETE -> ImportStatus("Saved, not synced", "${problemMessage ?: FINALIZE_REFUSED} Add them as not kept to finish. Your pieces stay in your wardrobe.", false)
+        ImportProblem.NOT_CONNECTED, ImportProblem.ACCESS_REJECTED -> ImportStatus("Pieces saved", "Reconnect to Wadrova to finish this import.", false)
+        ImportProblem.OFFLINE -> ImportStatus("Pieces saved", "Finishing with Wadrova when you're back online.", true)
+        else -> ImportStatus("Pieces saved", "Finishing with Wadrova.", true)
+    }
+    ImportState.COMPLETED -> ImportStatus("Done", "Your pieces are in your wardrobe.", false)
+}
+
+private const val FINALIZE_REFUSED = "Wadrova couldn't record what you saved."
+
+
+/** Null when either half is missing; nothing is sent without a token. Throws if the secure store can't be read. */
+internal suspend fun loadConnection(imports: GarmentImportRepository, credentials: CredentialStore): WadrovaConnection? {
+    val url = imports.apiUrl()?.let(::normalizedApiUrl) ?: return null
+    val token = credentials.read(Credential.WADROVA_ACCESS_TOKEN)?.takeIf { it.isNotBlank() } ?: return null
+    return WadrovaConnection(url, token)
 }
 
 /** Whether "Try again" can help: a stopped upload, check or cancel that's waiting on the network or the server. */
 val GarmentImport.canRetry: Boolean
-    get() = problem != null && state in setOf(ImportState.UPLOAD_PENDING, ImportState.PROCESSING, ImportState.CANCEL_PENDING)
+    get() = problem != null && state in setOf(ImportState.UPLOAD_PENDING, ImportState.PROCESSING, ImportState.CANCEL_PENDING, ImportState.FINALIZE_PENDING)
+
+/** Finishing stopped on a refusal only the user can resolve. */
+val ImportProblem?.needsUser: Boolean get() = this == ImportProblem.FINALIZE_REFUSED || this == ImportProblem.FINALIZE_INCOMPLETE
 
 val GarmentImport.needsConnection: Boolean
     get() = problem == ImportProblem.NOT_CONNECTED || problem == ImportProblem.ACCESS_REJECTED
@@ -152,6 +177,11 @@ class GarmentImportViewModel(
 
     fun openReview(id: String) {
         state = state.copy(route = ImportRoute.Review(id))
+    }
+
+    /** Back to the wardrobe from any import page. */
+    fun closeAll() {
+        state = state.copy(route = null, prepareError = null)
     }
 
     /** Leaves the import pages. Work carries on. */
@@ -210,7 +240,18 @@ class GarmentImportViewModel(
 
     /** Clears a stopped import's problem and drives it again now. */
     fun retry(id: String) {
-        restart(id)
+        viewModelScope.launch {
+            // A refused finalize is retried with the same frozen decisions; clearing the refusal lets the driver send them.
+            imports.update(id) { current, now ->
+                if (current.state == ImportState.FINALIZE_PENDING && current.problem == ImportProblem.FINALIZE_REFUSED) {
+                    current.copy(problem = null, problemMessage = null, updatedAt = now)
+                } else {
+                    current
+                }
+            }
+            reload()
+            restart(id)
+        }
     }
 
     fun requestRemoval(id: String) {
@@ -360,7 +401,9 @@ class GarmentImportViewModel(
                 ImportState.UPLOAD_PENDING, ImportState.UPLOADING -> upload(item)
                 ImportState.PROCESSING -> if (foreground) refresh(item) else Step.Stop
                 ImportState.CANCEL_PENDING -> cancel(item)
-                ImportState.READY, ImportState.FAILED, ImportState.REJECTED, ImportState.CLOSED -> Step.Stop
+                // A refusal waits for the user: Try again resends the same decisions; nothing changes them on its own.
+                ImportState.FINALIZE_PENDING -> if (item.problem.needsUser) Step.Stop else finalize(item)
+                ImportState.READY, ImportState.FAILED, ImportState.REJECTED, ImportState.CLOSED, ImportState.COMPLETED -> Step.Stop
             }
             reload()
             when (step) {
@@ -466,6 +509,93 @@ class GarmentImportViewModel(
         }
     }
 
+    /**
+     * Sends the stored decisions. Before the first send they're reconciled with the server's current candidates
+     * (a lineage that appeared after saving was never accepted, so it's added as rejected) and then frozen, with the
+     * freeze written before the request leaves. From then on every attempt sends exactly the stored decisions.
+     * Garments are already saved, so nothing here can lose them, and only the server's confirmation completes.
+     */
+    private suspend fun finalize(item: GarmentImport): Step {
+        val serverId = item.serverImportId ?: return Step.Stop
+        val connection = connection() ?: return problem(item, ImportProblem.NOT_CONNECTED)
+        return try {
+            if (item.finalizeSentAt == null) {
+                imports.addRejectedDecisions(item.id, uncoveredLineages(connection, item))
+                imports.markFinalizeSent(item.id)
+            }
+            val manifest = imports.storedManifest(item.id) ?: return Step.Stop
+            val remote = api.finalizeImport(connection, serverId, manifest)
+            if (remote.status == "finalized") {
+                imports.completeImport(item.id)
+                deletePhotoQuietly(item.photoId)
+                Step.Stop
+            } else {
+                refuse(item, FINALIZE_UNEXPECTED)
+            }
+        } catch (e: WadrovaApiException) {
+            when {
+                e.failure == ApiFailure.UNREACHABLE -> problem(item, ImportProblem.OFFLINE, Step.Failed)
+                e.failure == ApiFailure.UNAVAILABLE -> problem(item, ImportProblem.SERVER_UNAVAILABLE, Step.Failed)
+                e.failure == ApiFailure.UNAUTHENTICATED -> problem(item, ImportProblem.ACCESS_REJECTED)
+                e.reason == "missing_decisions" -> refuse(item, FINALIZE_MISSING, ImportProblem.FINALIZE_INCOMPLETE)
+                e.failure == ApiFailure.NOT_FOUND -> refuse(item, "This import is no longer on the Wadrova server.")
+                else -> refuse(item, finalizeRefusal(e.reason))
+            }
+        }
+    }
+
+    /** Current revisions of lineages that must be decided but aren't in the stored decisions. */
+    private suspend fun uncoveredLineages(connection: WadrovaConnection, item: GarmentImport): List<String> {
+        val sessionId = item.serverSessionId ?: return emptyList()
+        val manifest = imports.storedManifest(item.id) ?: return emptyList()
+        val decided = (manifest.accepted.map { it.first } + manifest.rejected).toSet()
+        return groupLineages(api.candidates(connection, sessionId))
+            .filter { lineage -> lineage.mustBeDecided && lineage.revisions.none { it.id in decided } }
+            .map { it.current.id }
+    }
+
+    private suspend fun refuse(item: GarmentImport, message: String, problem: ImportProblem = ImportProblem.FINALIZE_REFUSED): Step {
+        imports.update(item.id) { current, now -> current.finalizeRefused(message, now, problem) }
+        return Step.Stop
+    }
+
+    /**
+     * The user's answer to `missing_decisions`: the server stored nothing for the refused request, so the lineages it
+     * didn't have decisions for are added as not kept, and the extended decisions are sent. Never done automatically.
+     */
+    fun addNewPiecesAsNotKept(id: String) {
+        viewModelScope.launch {
+            val item = imports.get(id) ?: return@launch
+            if (item.state != ImportState.FINALIZE_PENDING || item.problem != ImportProblem.FINALIZE_INCOMPLETE) return@launch
+            val connection = connection() ?: return@launch reload()
+            try {
+                imports.addRejectedDecisions(id, uncoveredLineages(connection, item))
+                imports.update(id) { current, now -> current.copy(problem = null, problemMessage = null, updatedAt = now) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch reload()
+            }
+            restart(id)
+        }
+    }
+
+    /** Called once reviewed pieces are saved: finishing the import starts now. */
+    fun piecesSaved(id: String) {
+        viewModelScope.launch {
+            reload()
+            restart(id)
+        }
+    }
+
+    private fun finalizeRefusal(reason: String?): String = when (reason) {
+        "finalized_differently" -> "This import was already finished with different choices."
+        "cancelled" -> "This import was cancelled before it could be finished."
+        "failed" -> "This import failed on the server."
+        "not_ready" -> "This import isn't ready on the server."
+        else -> FINALIZE_UNEXPECTED
+    }
+
     private suspend fun findOnServer(connection: WadrovaConnection, localId: String): String? {
         var cursor: String? = null
         repeat(MAX_LIST_PAGES) {
@@ -492,12 +622,7 @@ class GarmentImportViewModel(
         reload()
     }
 
-    /** Null when either half is missing or the secure store can't be read; nothing is sent without a token. */
-    private suspend fun connection(): WadrovaConnection? {
-        val url = runCatchingQuietly { imports.apiUrl() }?.let(::normalizedApiUrl) ?: return null
-        val token = runCatchingQuietly { credentials.read(Credential.WADROVA_ACCESS_TOKEN) }?.takeIf { it.isNotBlank() } ?: return null
-        return WadrovaConnection(url, token)
-    }
+    private suspend fun connection(): WadrovaConnection? = runCatchingQuietly { loadConnection(imports, credentials) }
 
     private suspend fun hasToken(): Boolean = runCatchingQuietly { credentials.read(Credential.WADROVA_ACCESS_TOKEN) } != null
 
@@ -542,6 +667,8 @@ class GarmentImportViewModel(
     companion object {
         const val PHOTO_FAILED = "Couldn't use that photo. Try a different one."
         const val PHOTO_MISSING = "The saved copy of this photo is no longer on this device."
+        const val FINALIZE_UNEXPECTED = "Wadrova couldn't record what you saved."
+        const val FINALIZE_MISSING = "Wadrova found pieces in this photo that weren't part of your review."
         const val MAX_CONSECUTIVE_FAILURES = 6
         const val BASE_BACKOFF_MILLIS = 2_000L
         const val MAX_BACKOFF_MILLIS = 60_000L

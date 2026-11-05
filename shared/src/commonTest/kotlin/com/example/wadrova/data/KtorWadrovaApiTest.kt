@@ -201,4 +201,108 @@ class KtorWadrovaApiTest {
         assertNull(normalizedApiUrl("https://"))
         assertNull(normalizedApiUrl("https://user@host"))
     }
+
+    // Candidates, assets, finalize and corrections (API.md: Candidate, Corrections, Finalize).
+
+    private fun asset(id: String, kind: String, sha: String, type: String) =
+        """{"id":"$id","kind":"$kind","sha256":"$sha","byte_size":4,"media_type":"$type","width":100,"height":200,"content_url":"/v1/assets/$id/content"}"""
+
+    private fun candidateJson(id: String, status: String, wardrobe: String?, parent: String? = null, detected: Boolean = true) = """
+        {"id":"$id","session_id":"ses_1","photo_id":"pho_1","source_asset_id":"ast_s","state":"proposed","rank":3,
+         "category":"pants","family":${if (wardrobe == null) "null" else "\"lower\""},"wardrobe_category":${wardrobe?.let { "\"$it\"" } ?: "null"},
+         "identity":{"status":"$status","phrase":"pants","family":null,"wardrobe_category":${wardrobe?.let { "\"$it\"" } ?: "null"},"resolver_version":"r2","provisional":true,"reasons":[],"alternatives":[]},
+         "origin":"${if (detected) "detection" else "below_threshold"}","detected":$detected,"revision":${if (parent == null) 1 else 2},
+         "parent_candidate_id":${parent?.let { "\"$it\"" } ?: "null"},"superseded_by":null,"duplicate_of":null,"merged_part_ids":[],
+         "score":0.97,"bbox":{"x1":939,"y1":1759,"x2":1547,"y2":2468},"area_px":210744,"flags":["shared_mask"],"evidence":[],"provenance":{},
+         "mask":${asset("ast_m", "candidate_mask", "aa", "image/png")},"cutout":${asset("ast_c_$id", "candidate_cutout", "bb", "image/png")},
+         "preview":${asset("ast_p", "candidate_preview", "cc", "image/jpeg")},"created_at":"2026-11-03T00:00:00Z"}
+    """.trimIndent()
+
+    @Test
+    fun candidatesAreListedWithEveryRevisionAndOnlyResolvedSuggestions() = runTest {
+        val api = api {
+            json("""{"session_id":"ses_1","status":"succeeded","candidates":[${candidateJson("cnd_1", "resolved", "BOTTOM")},${candidateJson("cnd_2", "abstain", null, parent = "cnd_1")},${candidateJson("cnd_3", "not_assessed", null, detected = false)}]}""")
+        }
+        val candidates = api.candidates(connection, "ses_1")
+        val request = requests.single()
+        assertEquals("/v1/extraction-sessions/ses_1/candidates", request.url.encodedPath)
+        assertEquals("superseded,below_threshold", request.url.parameters["include"])
+        assertEquals(listOf("cnd_1", "cnd_2", "cnd_3"), candidates.map { it.id })
+        assertEquals(com.example.wadrova.domain.GarmentCategory.BOTTOM, candidates[0].suggestedCategory)
+        assertNull(candidates[1].suggestedCategory)
+        assertEquals("cnd_1", candidates[1].parentId)
+        assertEquals(2, candidates[1].revision)
+        assertEquals(false, candidates[2].detected)
+        assertEquals(com.example.wadrova.domain.CandidateBox(939, 1759, 1547, 2468), candidates[0].box)
+        assertEquals("bb", candidates[0].cutout.sha256)
+        assertEquals("image/png", candidates[0].cutout.mediaType)
+    }
+
+    @Test
+    fun assetBytesAreAcceptedOnlyWhenTheyMatchTheirHash() = runTest {
+        val png = byteArrayOf(-119, 80, 78, 71)
+        val good = com.example.wadrova.domain.CandidateAsset("ast_1", sha256Hex(png).uppercase(), "image/png", 1, 1)
+        assertContentEquals(png, api { respond(png, HttpStatusCode.OK) }.assetContent(connection, good))
+        assertEquals("https://api.test/v1/assets/ast_1/content", requests.single().url.toString())
+        val bad = assertFailsWith<WadrovaApiException> { api { respond(png, HttpStatusCode.OK) }.assetContent(connection, good.copy(sha256 = "00")) }
+        assertEquals("checksum_mismatch", bad.code)
+    }
+
+    @Test
+    fun finalizeSendsTheManifestWithoutAnIdempotencyKey() = runTest {
+        val manifest = com.example.wadrova.domain.FinalizeManifest(listOf("cnd_1" to "user-g1"), listOf("cnd_2", "cnd_3"))
+        val done = api { json(importJson("finalized")) }.finalizeImport(connection, "imp_1", manifest)
+        val request = requests.single()
+        assertEquals(HttpMethod.Post, request.method)
+        assertEquals("https://api.test/v1/imports/imp_1/finalize", request.url.toString())
+        assertNull(request.headers["Idempotency-Key"])
+        val body = kotlinx.serialization.json.Json.parseToJsonElement((request.body as io.ktor.http.content.TextContent).text)
+        assertEquals(
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"accepted":[{"candidate_id":"cnd_1","client_garment_id":"user-g1"}],"rejected":["cnd_2","cnd_3"]}"""),
+            body,
+        )
+        assertEquals("finalized", done.status)
+    }
+
+    @Test
+    fun finalizeConflictsCarryTheirReasonAndCandidates() = runTest {
+        val e = assertFailsWith<WadrovaApiException> {
+            api {
+                json(
+                    """{"error":{"code":"invalid_state","message":"x","retryable":false,"request_id":"r","details":{"reason":"missing_decisions","candidate_ids":["cnd_9"]}}}""",
+                    HttpStatusCode.Conflict,
+                )
+            }.finalizeImport(connection, "imp_1", com.example.wadrova.domain.FinalizeManifest(emptyList(), emptyList()))
+        }
+        assertEquals(ApiFailure.REJECTED, e.failure)
+        assertEquals("missing_decisions", e.reason)
+        assertEquals(listOf("cnd_9"), e.candidateIds)
+    }
+
+    @Test
+    fun correctionsSendTheirMethodBodyAndKey() = runTest {
+        val api = api { json("""{"id":"cor_1","method":"points","status":"queued","target_candidate_id":"cnd_1","result_candidate_id":null,"job":null,"created_at":"2026-11-03T00:00:00Z"}""", HttpStatusCode.Accepted) }
+        val created = api.createCorrection(connection, "cnd_1", "kmp-cor-1", CorrectionRequest.Points(listOf(Triple(897, 1003, true), Triple(10, 20, false))))
+        val request = requests.single()
+        assertEquals("https://api.test/v1/candidates/cnd_1/corrections", request.url.toString())
+        assertEquals("kmp-cor-1", request.headers["Idempotency-Key"])
+        assertEquals(
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"method":"points","points":[{"x":897,"y":1003,"positive":true},{"x":10,"y":20,"positive":false}]}"""),
+            kotlinx.serialization.json.Json.parseToJsonElement((request.body as io.ktor.http.content.TextContent).text),
+        )
+        assertEquals(ServerCorrection("cor_1", "queued", "cnd_1", null), created)
+
+        api.createCorrection(connection, "cnd_1", "kmp-cor-2", CorrectionRequest.SelectAlternative("cnd_5"))
+        assertEquals(
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"method":"select_alternative","alternative_candidate_id":"cnd_5"}"""),
+            kotlinx.serialization.json.Json.parseToJsonElement((requests[1].body as io.ktor.http.content.TextContent).text),
+        )
+        api.createCorrection(connection, "cnd_1", "kmp-cor-3", CorrectionRequest.Reprompt("denim jacket"))
+        assertEquals(
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"method":"reprompt","phrase":"denim jacket"}"""),
+            kotlinx.serialization.json.Json.parseToJsonElement((requests[2].body as io.ktor.http.content.TextContent).text),
+        )
+        api.getCorrection(connection, "cor_1")
+        assertEquals("https://api.test/v1/corrections/cor_1", requests[3].url.toString())
+    }
 }

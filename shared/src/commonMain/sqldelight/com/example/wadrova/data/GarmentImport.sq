@@ -16,7 +16,10 @@ CREATE TABLE garment_import (
     candidate_count INTEGER,
     poll_after_seconds INTEGER,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    -- Set just before the first finalize request. From then on the stored decisions are frozen: only a definite
+    -- refusal plus an explicit user action may extend them.
+    finalize_sent_at INTEGER
 );
 
 CREATE INDEX garment_import_source_sha256 ON garment_import(source_sha256);
@@ -53,3 +56,6 @@ UPDATE garment_import SET state = 'UPLOAD_PENDING', updated_at = ? WHERE state =
 
 deleteImport:
 DELETE FROM garment_import WHERE id = ?;
+
+markFinalizeSent:
+UPDATE garment_import SET finalize_sent_at = ?, updated_at = ? WHERE id = ? AND finalize_sent_at IS NULL;

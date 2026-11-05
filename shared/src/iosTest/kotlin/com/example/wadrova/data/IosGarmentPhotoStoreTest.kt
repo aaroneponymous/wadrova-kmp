@@ -118,6 +118,18 @@ class IosGarmentPhotoStoreTest {
     }
 
     @Test
+    fun aTransparentCutoutImportsFromBytesAndGarbageFailsCleanly() = runTest {
+        val png = UIImagePNGRepresentation(image(300, 500, opaque = false))!!
+        val bytes = ByteArray(png.length.toInt()).also { out -> out.usePinned { platform.posix.memcpy(it.addressOf(0), png.bytes, png.length) } }
+        val id = store.importBytes(bytes)
+        assertEquals(300 to 500, dimensions(id, PhotoSize.DISPLAY))
+        assertEquals(300 to 500, dimensions(id, PhotoSize.THUMBNAIL))
+        assertFailsWith<PhotoImportException> { store.importBytes(ByteArray(16) { 1 }) }
+        assertFailsWith<PhotoImportException> { store.importBytes(ByteArray(0)) }
+        assertEquals(setOf(id), store.storedIds())
+    }
+
+    @Test
     fun unreadableFilesFailCleanly() = runTest {
         val corrupt = path("jpg").also { ByteArray(16) { 1 }.toNSData().writeToFile(it, true) }
         assertFailsWith<PhotoImportException> { store.import(PickedPhoto(corrupt)) }

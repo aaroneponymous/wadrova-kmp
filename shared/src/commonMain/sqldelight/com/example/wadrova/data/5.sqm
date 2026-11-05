@@ -1,0 +1,35 @@
+CREATE TABLE garment_import_review (
+    import_id TEXT NOT NULL,
+    lineage_id TEXT NOT NULL,
+    garment_id TEXT NOT NULL UNIQUE,
+    selected INTEGER NOT NULL,
+    chosen_candidate_id TEXT,
+    name TEXT,
+    category TEXT,
+    color TEXT,
+    correction_key TEXT,
+    correction_id TEXT,
+    correction_method TEXT,
+    correction_message TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (import_id, lineage_id)
+);
+
+CREATE TABLE garment_import_source (
+    garment_id TEXT NOT NULL PRIMARY KEY,
+    import_id TEXT NOT NULL,
+    server_import_id TEXT NOT NULL,
+    lineage_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL UNIQUE,
+    revision INTEGER NOT NULL,
+    photo_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (import_id, lineage_id)
+);
+
+CREATE TABLE garment_import_decision (
+    import_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    garment_id TEXT,
+    PRIMARY KEY (import_id, candidate_id)
+);

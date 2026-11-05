@@ -15,7 +15,7 @@ In this repo:
   - `domain/`: pure Kotlin rules (outfit composition, garments, looks). No Compose or platform code.
   - `data/`: SQLDelight repositories, photo and generated-image stores, credential store, the Mirror backend client and the Wadrova API client (Ktor).
   - `ui/`: Compose screens plus their state. `App.kt` wires tabs, screens and global dialogs.
-- `shared/src/commonMain/sqldelight/`: `.sq` schemas and `1.sqm`–`4.sqm` migrations (database version 5).
+- `shared/src/commonMain/sqldelight/`: `.sq` schemas and `1.sqm`–`6.sqm` migrations (database version 7).
 - `shared/src/commonMain/composeResources/`: fonts (Manrope, Instrument Serif), generated brand vectors and the splash Lottie files (`files/`).
 - `shared/src/{androidMain,iosMain}/`: photo stores, credential stores (Keystore, Keychain), SHA-256, photo pickers, back handling, database drivers.
 - `androidApp/`, `iosApp/`: thin platform entry points. `mirror_backend/`: local FastAPI server for Mirror (see its README).

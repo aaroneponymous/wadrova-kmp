@@ -168,17 +168,18 @@ class SqlDelightGarmentRepository(
         val knownCategory = GarmentCategory.entries.find { it.name == category } ?: return null
         return UserGarment(Garment(id, knownCategory), name, color, brand, material, archived_at != null, photo_id, extracted_image_id)
     }
+}
 
-    private fun GarmentDetails.validated(): GarmentDetails {
-        val cleanName = name.trim()
-        val cleanColor = color.trim()
-        if (cleanName.isEmpty()) throw InvalidGarmentException("A piece needs a name.")
-        if (cleanColor.isEmpty()) throw InvalidGarmentException("A piece needs a color.")
-        return copy(
-            name = cleanName,
-            color = cleanColor,
-            brand = brand?.trim()?.ifEmpty { null },
-            material = material?.trim()?.ifEmpty { null },
-        )
-    }
+/** Trims the details and checks the fields every garment needs. Shared by manual saves and saved imports. */
+internal fun GarmentDetails.validated(): GarmentDetails {
+    val cleanName = name.trim()
+    val cleanColor = color.trim()
+    if (cleanName.isEmpty()) throw InvalidGarmentException("A piece needs a name.")
+    if (cleanColor.isEmpty()) throw InvalidGarmentException("A piece needs a color.")
+    return copy(
+        name = cleanName,
+        color = cleanColor,
+        brand = brand?.trim()?.ifEmpty { null },
+        material = material?.trim()?.ifEmpty { null },
+    )
 }

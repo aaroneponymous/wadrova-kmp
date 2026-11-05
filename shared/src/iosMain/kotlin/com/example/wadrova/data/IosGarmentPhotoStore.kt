@@ -26,6 +26,8 @@ import platform.CoreGraphics.CGSizeMake
 import platform.Foundation.CFBridgingRelease
 import platform.Foundation.CFBridgingRetain
 import platform.Foundation.NSApplicationSupportDirectory
+import platform.Foundation.NSTemporaryDirectory
+import platform.Foundation.create
 import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSNumber
@@ -89,6 +91,17 @@ class IosGarmentPhotoStore(folderName: String = "garment_photos") : GarmentPhoto
             // The picker's copy of the photo is temporary either way.
             files.removeItemAtPath(photo.location, null)
         }
+    }
+
+    /** Writes a temporary file and imports it the same way as a picked photo, which deletes the file afterwards. */
+    @OptIn(ExperimentalUuidApi::class)
+    override suspend fun importBytes(bytes: ByteArray): String {
+        val path = NSTemporaryDirectory() + "import-${Uuid.random()}"
+        val written = withContext(Dispatchers.IO) {
+            if (bytes.isEmpty()) false else bytes.usePinned { NSData.create(bytes = it.addressOf(0), length = bytes.size.toULong()) }.writeToFile(path, true)
+        }
+        if (!written) throw PhotoImportException("Couldn't read the photo.")
+        return import(PickedPhoto(path))
     }
 
     override suspend fun read(id: String, size: PhotoSize): ByteArray? = withContext(Dispatchers.IO) {

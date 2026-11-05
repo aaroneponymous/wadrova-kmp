@@ -435,7 +435,7 @@ private fun FieldError(text: String) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChipGroup(content: @Composable () -> Unit) {
+internal fun ChipGroup(content: @Composable () -> Unit) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -445,7 +445,7 @@ private fun ChipGroup(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun FormChip(label: String, selected: Boolean, enabled: Boolean, swatch: Color? = null, onClick: () -> Unit) {
+internal fun FormChip(label: String, selected: Boolean, enabled: Boolean, swatch: Color? = null, onClick: () -> Unit) {
     Row(
         Modifier
             .height(44.dp)
@@ -468,7 +468,7 @@ private fun FormChip(label: String, selected: Boolean, enabled: Boolean, swatch:
 }
 
 @Composable
-private fun Swatch(tint: Color, size: Dp) {
+internal fun Swatch(tint: Color, size: Dp) {
     Box(
         Modifier
             .size(size)

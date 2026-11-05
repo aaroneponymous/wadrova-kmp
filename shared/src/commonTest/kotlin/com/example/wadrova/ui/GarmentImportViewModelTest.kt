@@ -39,78 +39,12 @@ import kotlinx.coroutines.test.setMain
 /** The import workflow against a fake server that behaves like wadrova-backend's idempotent import API. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class GarmentImportViewModelTest {
-    private class FakeServer : WadrovaApi {
-        val calls = mutableListOf<String>()
-        val uploads = mutableListOf<Triple<String, String, List<Byte>>>()
-        val tokens = mutableListOf<String>()
-        val imports = linkedMapOf<String, ServerImport>()
-        private val idByKey = mutableMapOf<String, String>()
-        val createFailures = ArrayDeque<WadrovaApiException>()
-        var loseNextCreateResponse = false
-        var alwaysUnreachable = false
-        var getFailure: WadrovaApiException? = null
-        val cancelFailures = ArrayDeque<WadrovaApiException>()
-        var createGate: CompletableDeferred<Unit>? = null
-
-        private fun record(name: String, connection: WadrovaConnection) {
-            calls += name
-            tokens += connection.token
-            if (alwaysUnreachable) throw unreachable()
-        }
-
-        override suspend fun me(connection: WadrovaConnection): String {
-            record("me", connection)
-            return "Drill"
-        }
-
-        override suspend fun createImport(connection: WadrovaConnection, key: String, sha256: String, jpeg: ByteArray): ServerImport {
-            record("create", connection)
-            uploads += Triple(key, sha256, jpeg.toList())
-            createGate?.await()
-            createFailures.removeFirstOrNull()?.let { throw it }
-            // Like the server: the same key returns the same import.
-            val id = idByKey.getOrPut(key) {
-                "imp_${idByKey.size + 1}".also { imports[it] = ServerImport(it, key, "queued", "ses_$it", null, null, 3) }
-            }
-            if (loseNextCreateResponse) {
-                loseNextCreateResponse = false
-                throw unreachable()
-            }
-            return imports.getValue(id)
-        }
-
-        override suspend fun getImport(connection: WadrovaConnection, id: String): ServerImport {
-            record("get", connection)
-            getFailure?.let { throw it }
-            return imports[id] ?: throw WadrovaApiException(ApiFailure.NOT_FOUND, "gone")
-        }
-
-        override suspend fun activeImports(connection: WadrovaConnection, cursor: String?): Pair<List<ServerImport>, String?> {
-            record("list", connection)
-            return imports.values.filter { it.status != "cancelled" && it.status != "finalized" } to null
-        }
-
-        override suspend fun cancelImport(connection: WadrovaConnection, id: String): ServerImport {
-            record("cancel", connection)
-            cancelFailures.removeFirstOrNull()?.let { throw it }
-            return imports.getValue(id).copy(status = "cancelled").also { imports[id] = it }
-        }
-
-        fun set(id: String, status: String, count: Int? = null, failure: String? = null) {
-            imports[id] = imports.getValue(id).copy(status = status, candidateCount = count, failureMessage = failure)
-        }
-
-        fun count(name: String) = calls.count { it == name }
-
-        private fun unreachable() = WadrovaApiException(ApiFailure.UNREACHABLE, "Couldn't reach Wadrova.")
-    }
-
     private val databaseName = "garment_import_vm_test"
     private val dispatcher = StandardTestDispatcher()
     private val photoBytes = byteArrayOf(-1, -40, 7, 8, 9)
     private lateinit var driver: SqlDriver
     private lateinit var imports: SqlDelightGarmentImportRepository
-    private val server = FakeServer()
+    private val server = FakeWadrovaServer()
     private val photos = FakePhotoStore()
     private val credentials = FakeCredentialStore(mutableMapOf(Credential.WADROVA_ACCESS_TOKEN to "wdr_token"))
     private val models = mutableListOf<GarmentImportViewModel>()

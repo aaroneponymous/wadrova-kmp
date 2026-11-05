@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 class AndroidGarmentPhotoStore(context: Context) : GarmentPhotoStore {
     private val resolver = context.applicationContext.contentResolver
     private val root = File(context.applicationContext.noBackupFilesDir, "garment_photos")
+    private val cacheDir = context.applicationContext.cacheDir
 
     override suspend fun import(photo: PickedPhoto): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
@@ -44,6 +45,18 @@ class AndroidGarmentPhotoStore(context: Context) : GarmentPhotoStore {
         } catch (e: OutOfMemoryError) {
             staging.deleteRecursively()
             throw PhotoImportException("The photo is too large.", e)
+        }
+    }
+
+    /** Goes through a private temporary file, so bytes take exactly the same decoding path as picked photos. */
+    override suspend fun importBytes(bytes: ByteArray): String {
+        val temp = withContext(Dispatchers.IO) {
+            File(cacheDir, "import-${UUID.randomUUID()}").apply { writeBytes(bytes) }
+        }
+        try {
+            return import(PickedPhoto(Uri.fromFile(temp).toString()))
+        } finally {
+            withContext(Dispatchers.IO) { temp.delete() }
         }
     }
 

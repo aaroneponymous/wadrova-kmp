@@ -61,6 +61,22 @@ class AndroidGarmentPhotoStoreTest {
     }
 
     @Test
+    fun aTransparentCutoutImportsFromBytesFlattenedOntoWhite() = runTest {
+        val cutout = Bitmap.createBitmap(300, 500, Bitmap.Config.ARGB_8888)
+        cutout.eraseColor(Color.TRANSPARENT)
+        val png = java.io.ByteArrayOutputStream().also { cutout.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        cutout.recycle()
+        val id = store.importBytes(png)
+        assertEquals(300 to 500, dimensions(id, PhotoSize.DISPLAY))
+        assertEquals(300 to 500, dimensions(id, PhotoSize.THUMBNAIL))
+        val bytes = assertNotNull(store.read(id, PhotoSize.DISPLAY))
+        assertEquals(Color.WHITE, BitmapFactory.decodeByteArray(bytes, 0, bytes.size).getPixel(150, 250))
+        assertFailsWith<PhotoImportException> { store.importBytes(ByteArray(16) { 1 }) }
+        assertEquals(setOf(id), store.storedIds())
+        assertTrue(context.cacheDir.listFiles().orEmpty().none { it.name.startsWith("import-") })
+    }
+
+    @Test
     fun portraitAndLandscapeAreScaledToBothRenditions() = runTest {
         val portrait = store.import(picked(source(2000, 4000)))
         assertEquals(800 to 1600, dimensions(portrait, PhotoSize.DISPLAY))

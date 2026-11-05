@@ -24,6 +24,20 @@ class FakePhotoStore(val stored: MutableSet<String> = mutableSetOf()) : GarmentP
     /** The display bytes of each stored photo. Photos without an entry read as one zero byte. */
     val contents = mutableMapOf<String, ByteArray>()
 
+    /** Bytes imported with [importBytes], by photo id. Bytes listed in [undecodable] fail like a bad image. */
+    val importedBytes = mutableMapOf<String, ByteArray>()
+    val undecodable = mutableListOf<ByteArray>()
+
+    override suspend fun importBytes(bytes: ByteArray): String {
+        importGate?.await()
+        importFailure?.let { throw it }
+        if (undecodable.any { it.contentEquals(bytes) }) throw PhotoImportException("This image format isn't supported.")
+        return "photo-${++nextId}".also {
+            stored += it
+            importedBytes[it] = bytes
+        }
+    }
+
     override suspend fun read(id: String, size: PhotoSize): ByteArray? = if (id in stored) contents[id] ?: ByteArray(1) else null
 
     override suspend fun delete(id: String) {

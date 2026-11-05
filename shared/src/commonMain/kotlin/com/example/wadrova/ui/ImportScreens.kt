@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.wadrova.data.PhotoSize
 import com.example.wadrova.domain.GarmentImport
+import com.example.wadrova.domain.ImportProblem
 import com.example.wadrova.domain.ImportState
 
 private const val UPLOAD_NOTE =
@@ -146,6 +147,23 @@ private fun ImportActions(item: GarmentImport, viewModel: GarmentImportViewModel
     val top = Modifier.padding(top = 20.dp)
     val next = Modifier.padding(top = 8.dp)
     when {
+        // Pieces are saved: only finishing with the server is left, and cancelling would no longer make sense.
+        item.state == ImportState.FINALIZE_PENDING -> {
+            when {
+                item.problem == ImportProblem.FINALIZE_INCOMPLETE -> {
+                    ActionButton("Add new pieces as not kept", top, dark = true) { viewModel.addNewPiecesAsNotKept(item.id) }
+                    ActionButton("Back to wardrobe", next, onClick = viewModel::close)
+                }
+                item.problem == ImportProblem.FINALIZE_REFUSED -> {
+                    // Try again resends exactly the same decisions; the import stays listed until Wadrova confirms.
+                    ActionButton("Try again", top, dark = true) { viewModel.retry(item.id) }
+                    ActionButton("Back to wardrobe", next, onClick = viewModel::close)
+                }
+                item.needsConnection -> ActionButton("Connect to Wadrova", top, dark = true, onClick = viewModel::openConnection)
+                item.canRetry -> ActionButton("Try again", top, dark = true) { viewModel.retry(item.id) }
+                else -> ActionButton("Back to wardrobe", top, onClick = viewModel::close)
+            }
+        }
         item.needsConnection -> {
             ActionButton("Connect to Wadrova", top, dark = true, onClick = viewModel::openConnection)
             RemoveLink(item, viewModel)
@@ -180,26 +198,6 @@ private fun ImportActions(item: GarmentImport, viewModel: GarmentImportViewModel
 private fun RemoveLink(item: GarmentImport, viewModel: GarmentImportViewModel) {
     TextButton(onClick = { viewModel.requestRemoval(item.id) }, Modifier.padding(top = 4.dp)) {
         Text(if (item.state == ImportState.READY) "Discard this photo" else "Cancel import", color = WadrovaColors.Ink2)
-    }
-}
-
-/**
- * The entry point M4.5 replaces with the real review. It shows only what the server reported and says plainly
- * that nothing has been saved, so it can't be mistaken for added pieces.
- */
-@Composable
-fun ImportReviewPlaceholder(state: ImportUiState, viewModel: GarmentImportViewModel) {
-    val item = (state.route as? ImportRoute.Review)?.let { state.import(it.importId) }
-    MirrorPage("Review pieces", "Your ", "pieces", viewModel::close) {
-        if (item != null) {
-            PhotoFrame { PhotoOrFallback(item.photoId, PhotoSize.DISPLAY, "Your photo", Modifier.fillMaxSize()) { Small("Photo unavailable") } }
-            item.status().detail?.let { Text(it, Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium, color = WadrovaColors.Charcoal) }
-        }
-        Body(
-            "Reviewing and saving pieces comes in the next update. Nothing from this photo has been added to your wardrobe, and it stays here to review then.",
-            Modifier.padding(top = 8.dp),
-        )
-        ActionButton("Back", Modifier.padding(top = 20.dp), onClick = viewModel::close)
     }
 }
 

@@ -24,10 +24,33 @@ enum class ImportState {
 
     /** Cancelled or finalized somewhere other than this app, or no longer on the server. */
     CLOSED,
+
+    /**
+     * The reviewed pieces are saved in the wardrobe and the decisions are stored; the server hasn't confirmed them
+     * yet. The stored decisions are what every retry sends.
+     */
+    FINALIZE_PENDING,
+
+    /** The server recorded the decisions. Kept only as the provenance link for saved garments; not listed. */
+    COMPLETED,
 }
 
 /** Why an import isn't moving right now. Cleared by the next successful step. */
-enum class ImportProblem { NOT_CONNECTED, ACCESS_REJECTED, OFFLINE, SERVER_UNAVAILABLE }
+enum class ImportProblem {
+    NOT_CONNECTED,
+    ACCESS_REJECTED,
+    OFFLINE,
+    SERVER_UNAVAILABLE,
+
+    /** The server refused the stored decisions (for example, finalized differently elsewhere). Needs the user. */
+    FINALIZE_REFUSED,
+
+    /**
+     * The server found lineages the frozen decisions don't cover (`missing_decisions`). It stored nothing, so the user
+     * may add them as not kept; the app never does that by itself once the decisions were sent.
+     */
+    FINALIZE_INCOMPLETE,
+}
 
 /** What the server reports about one import. Only the fields the app uses. */
 data class ServerImport(
@@ -61,6 +84,8 @@ data class GarmentImport(
     val pollAfterSeconds: Int? = null,
     val createdAt: Long,
     val updatedAt: Long,
+    /** When the stored decisions were first sent. Non-null means they're frozen. */
+    val finalizeSentAt: Long? = null,
 ) {
     /**
      * Whether the server might already hold this import. A request that was sent may have been committed even if its
@@ -88,8 +113,17 @@ data class GarmentImport(
 
     fun cancelRequested(now: Long): GarmentImport = copy(state = ImportState.CANCEL_PENDING, problem = null, updatedAt = now)
 
+    fun finalizePending(now: Long): GarmentImport = copy(state = ImportState.FINALIZE_PENDING, problem = null, problemMessage = null, updatedAt = now)
+
+    fun completed(now: Long): GarmentImport = copy(state = ImportState.COMPLETED, problem = null, problemMessage = null, updatedAt = now)
+
+    fun finalizeRefused(message: String, now: Long, problem: ImportProblem = ImportProblem.FINALIZE_REFUSED): GarmentImport =
+        copy(problem = problem, problemMessage = message, updatedAt = now)
+
     /** Applies the server's view. A cancel the user asked for is kept, so it's still sent. */
     fun withServer(remote: ServerImport, now: Long): GarmentImport {
+        // Once pieces are saved, the import's next state comes only from finalizing.
+        if (state == ImportState.FINALIZE_PENDING || state == ImportState.COMPLETED) return this
         val next = when (remote.status) {
             "ready" -> ImportState.READY
             "failed" -> ImportState.FAILED

@@ -1,0 +1,72 @@
+-- What the user decided per lineage while reviewing an import. garment_id is created with the row, so saving the
+-- same lineage again (after a crash or retry) reuses it and can't make a second garment.
+CREATE TABLE garment_import_review (
+    import_id TEXT NOT NULL,
+    lineage_id TEXT NOT NULL,
+    garment_id TEXT NOT NULL UNIQUE,
+    selected INTEGER NOT NULL,
+    chosen_candidate_id TEXT,
+    name TEXT,
+    category TEXT,
+    color TEXT,
+    correction_key TEXT,
+    correction_id TEXT,
+    correction_method TEXT,
+    correction_message TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (import_id, lineage_id)
+);
+
+-- Where a saved garment came from. A candidate, and a lineage within an import, can each become at most one garment.
+CREATE TABLE garment_import_source (
+    garment_id TEXT NOT NULL PRIMARY KEY,
+    import_id TEXT NOT NULL,
+    server_import_id TEXT NOT NULL,
+    lineage_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL UNIQUE,
+    revision INTEGER NOT NULL,
+    photo_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (import_id, lineage_id)
+);
+
+-- The finalize manifest, written in the same transaction as the garments. Every retry sends exactly these rows:
+-- garment_id set means accepted, null means rejected.
+CREATE TABLE garment_import_decision (
+    import_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    garment_id TEXT,
+    PRIMARY KEY (import_id, candidate_id)
+);
+
+selectReviewChoices:
+SELECT * FROM garment_import_review WHERE import_id = ?;
+
+insertReviewChoice:
+INSERT OR IGNORE INTO garment_import_review (import_id, lineage_id, garment_id, selected, updated_at)
+VALUES (?, ?, ?, 0, ?);
+
+updateReviewChoice:
+UPDATE garment_import_review
+SET selected = ?, chosen_candidate_id = ?, name = ?, category = ?, color = ?, correction_key = ?, correction_id = ?,
+    correction_method = ?, correction_message = ?, updated_at = ?
+WHERE import_id = ? AND lineage_id = ?;
+
+deleteReviewChoices:
+DELETE FROM garment_import_review WHERE import_id = ?;
+
+insertSource:
+INSERT INTO garment_import_source (garment_id, import_id, server_import_id, lineage_id, candidate_id, revision, photo_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectSources:
+SELECT * FROM garment_import_source WHERE import_id = ?;
+
+insertDecision:
+INSERT INTO garment_import_decision (import_id, candidate_id, garment_id) VALUES (?, ?, ?);
+
+selectDecisions:
+SELECT * FROM garment_import_decision WHERE import_id = ? ORDER BY candidate_id;
+
+deleteDecisions:
+DELETE FROM garment_import_decision WHERE import_id = ?;

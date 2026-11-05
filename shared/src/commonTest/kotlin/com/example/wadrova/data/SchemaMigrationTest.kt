@@ -166,6 +166,98 @@ private object SchemaV4 : SqlSchema<QueryResult.Value<Unit>> {
     ): QueryResult.Value<Unit> = QueryResult.Unit
 }
 
+/** Version 5 added garment imports (M4.4). */
+private object SchemaV5 : SqlSchema<QueryResult.Value<Unit>> {
+    override val version = 5L
+
+    override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
+        SchemaV4.create(driver)
+        driver.execute(
+            null,
+            """
+            CREATE TABLE garment_import (
+                id TEXT NOT NULL PRIMARY KEY,
+                photo_id TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                source_byte_size INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                upload_attempts INTEGER NOT NULL,
+                problem TEXT,
+                problem_message TEXT,
+                server_import_id TEXT UNIQUE,
+                server_session_id TEXT,
+                server_status TEXT,
+                candidate_count INTEGER,
+                poll_after_seconds INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(null, "CREATE INDEX garment_import_source_sha256 ON garment_import(source_sha256)", 0)
+        driver.execute(
+            null,
+            "INSERT INTO garment_import VALUES ('kmp-imp-1', 'import-photo', '${"ab".repeat(32)}', 10, 'READY', 1, NULL, NULL, 'imp_1', 'ses_1', 'ready', 3, NULL, 1, 2)",
+            0,
+        )
+        return QueryResult.Unit
+    }
+
+    override fun migrate(
+        driver: SqlDriver,
+        oldVersion: Long,
+        newVersion: Long,
+        vararg callbacks: AfterVersion,
+    ): QueryResult.Value<Unit> = QueryResult.Unit
+}
+
+/** Version 6 added review, provenance and finalize decisions (M4.5), before decisions could be frozen. */
+private object SchemaV6 : SqlSchema<QueryResult.Value<Unit>> {
+    override val version = 6L
+
+    override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
+        SchemaV5.create(driver)
+        driver.execute(
+            null,
+            """
+            CREATE TABLE garment_import_review (
+                import_id TEXT NOT NULL, lineage_id TEXT NOT NULL, garment_id TEXT NOT NULL UNIQUE, selected INTEGER NOT NULL,
+                chosen_candidate_id TEXT, name TEXT, category TEXT, color TEXT, correction_key TEXT, correction_id TEXT,
+                correction_method TEXT, correction_message TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (import_id, lineage_id)
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
+            CREATE TABLE garment_import_source (
+                garment_id TEXT NOT NULL PRIMARY KEY, import_id TEXT NOT NULL, server_import_id TEXT NOT NULL, lineage_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL, photo_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+                UNIQUE (import_id, lineage_id)
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(
+            null,
+            "CREATE TABLE garment_import_decision (import_id TEXT NOT NULL, candidate_id TEXT NOT NULL, garment_id TEXT, PRIMARY KEY (import_id, candidate_id))",
+            0,
+        )
+        driver.execute(null, "UPDATE garment_import SET state = 'FINALIZE_PENDING' WHERE id = 'kmp-imp-1'", 0)
+        driver.execute(null, "INSERT INTO garment_import_decision VALUES ('kmp-imp-1', 'cnd_a', NULL)", 0)
+        return QueryResult.Unit
+    }
+
+    override fun migrate(
+        driver: SqlDriver,
+        oldVersion: Long,
+        newVersion: Long,
+        vararg callbacks: AfterVersion,
+    ): QueryResult.Value<Unit> = QueryResult.Unit
+}
+
 class SchemaMigrationTest {
     private val databaseName = "migration_test"
 
@@ -290,6 +382,56 @@ class SchemaMigrationTest {
             imports.createOrReuse("kmp-imp-1", "import-photo", "ab".repeat(32), 10)
             garments.removeUnreferencedPhotos()
             assertEquals(setOf("photo-1", "import-photo"), photos.stored)
+        } finally {
+            driver.close()
+        }
+    }
+
+    @Test
+    fun versionFiveDatabaseUpgradesWithImportsIntactAndReviewTablesReady() = runTest {
+        val oldDriver = openTestDatabase(databaseName, SchemaV5)
+        oldDriver.executeQuery(null, "SELECT COUNT(*) FROM garment_import", { QueryResult.Value(it.next().value) }, 0)
+        oldDriver.close()
+
+        val driver = openTestDatabase(databaseName)
+        try {
+            val imports = SqlDelightGarmentImportRepository(driver)
+            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo-1", "import-photo", "cut")), FakeGeneratedImageStore())
+            val ready = imports.get("kmp-imp-1")!!
+            assertEquals(com.example.wadrova.domain.ImportState.READY, ready.state)
+            assertEquals(3, ready.candidateCount)
+            assertEquals("user-1", garments.getAll().single().garment.id)
+
+            val choice = imports.reviewChoices("kmp-imp-1", listOf("cnd_a")).getValue("cnd_a")
+            imports.saveReviewedPieces(
+                "kmp-imp-1",
+                listOf(ReviewedPiece(choice.garmentId, GarmentDetails("Jacket", GarmentCategory.OUTERWEAR, "Grey"), "cut", "cnd_a", "cnd_a", 1)),
+                com.example.wadrova.domain.FinalizeManifest(listOf("cnd_a" to choice.garmentId), emptyList()),
+            )
+            assertEquals(2, garments.getAll().size)
+        } finally {
+            driver.close()
+        }
+    }
+
+    @Test
+    fun versionSixDatabaseUpgradesWithPendingDecisionsUnfrozen() = runTest {
+        val oldDriver = openTestDatabase(databaseName, SchemaV6)
+        oldDriver.executeQuery(null, "SELECT COUNT(*) FROM garment_import", { QueryResult.Value(it.next().value) }, 0)
+        oldDriver.close()
+
+        val driver = openTestDatabase(databaseName)
+        try {
+            val imports = SqlDelightGarmentImportRepository(driver)
+            val pending = imports.get("kmp-imp-1")!!
+            assertEquals(com.example.wadrova.domain.ImportState.FINALIZE_PENDING, pending.state)
+            assertEquals(null, pending.finalizeSentAt)
+            assertEquals(com.example.wadrova.domain.FinalizeManifest(emptyList(), listOf("cnd_a")), imports.storedManifest("kmp-imp-1"))
+            imports.markFinalizeSent("kmp-imp-1")
+            val frozenAt = imports.get("kmp-imp-1")!!.finalizeSentAt
+            assertTrue(frozenAt != null)
+            imports.markFinalizeSent("kmp-imp-1")
+            assertEquals(frozenAt, imports.get("kmp-imp-1")!!.finalizeSentAt)
         } finally {
             driver.close()
         }

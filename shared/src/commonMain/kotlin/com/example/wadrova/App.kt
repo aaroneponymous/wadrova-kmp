@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,7 +41,8 @@ import com.example.wadrova.ui.GarmentImportViewModel
 import com.example.wadrova.ui.ImportConnectionScreen
 import com.example.wadrova.ui.ImportDialogs
 import com.example.wadrova.ui.ImportProgressScreen
-import com.example.wadrova.ui.ImportReviewPlaceholder
+import com.example.wadrova.ui.GarmentReviewViewModel
+import com.example.wadrova.ui.ImportReviewScreen
 import com.example.wadrova.ui.ImportRoute
 import com.example.wadrova.ui.LeaveForegroundEffect
 import com.example.wadrova.ui.OutfitBuilderScreen
@@ -97,6 +99,19 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
             repositories.backgroundGrace,
         )
     }
+    val review = viewModel {
+        GarmentReviewViewModel(
+            repositories.garmentImports,
+            repositories.wadrovaApi,
+            repositories.credentials,
+            repositories.photos,
+            onSaved = { importId ->
+                garmentImports.piecesSaved(importId)
+                // The saved pieces are ordinary garments now; reloading shows them in Your Items and the Builder.
+                viewModel.loadRecords()
+            },
+        )
+    }
     val state = viewModel.state
     val mirrorState = mirror.state
     val importState = garmentImports.state
@@ -127,9 +142,12 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
                                 ExtractionScreen(mirrorState, mirror)
                             }
                             tab == PrimaryTab.WARDROBE && importOpen -> {
-                                PlatformBackHandler { garmentImports.close() }
-                                when (importState.route) {
-                                    is ImportRoute.Review -> ImportReviewPlaceholder(importState, garmentImports)
+                                PlatformBackHandler { if (review.state.detailLineageId != null) review.closeDetail() else garmentImports.close() }
+                                when (val route = importState.route) {
+                                    is ImportRoute.Review -> {
+                                        LaunchedEffect(route.importId) { review.open(route.importId) }
+                                        ImportReviewScreen(review.state, review, onBack = garmentImports::close, onGoToWardrobe = garmentImports::closeAll)
+                                    }
                                     is ImportRoute.Connection -> ImportConnectionScreen(importState, garmentImports)
                                     else -> ImportProgressScreen(importState, garmentImports, pickAnotherPhoto)
                                 }
@@ -149,7 +167,7 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
                                         viewModel::loadRecords,
                                         itemsGrid,
                                         outfitsGrid,
-                                        importState.imports,
+                                        importState.pending,
                                         garmentImports::open,
                                         garmentImports::onPhotoPicked,
                                     ) {

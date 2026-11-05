@@ -19,6 +19,12 @@ interface GarmentPhotoStore {
     /** Stores properly oriented renditions and returns the new photo id. Throws [PhotoImportException]. */
     suspend fun import(photo: PickedPhoto): String
 
+    /**
+     * Like [import], from encoded image bytes (such as a downloaded PNG cutout). Transparency is flattened onto white,
+     * as for picked photos. Throws [PhotoImportException] if the bytes don't decode.
+     */
+    suspend fun importBytes(bytes: ByteArray): String
+
     /** Returns null if the file is unavailable, for example after a backup restored only the database. */
     suspend fun read(id: String, size: PhotoSize): ByteArray?
 
