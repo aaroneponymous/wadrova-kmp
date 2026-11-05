@@ -17,6 +17,8 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.test.runTest
+import com.example.wadrova.ui.VisibleBounds
+import com.example.wadrova.ui.computeVisibleBounds
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import platform.CoreFoundation.CFDataRef
 import platform.CoreFoundation.CFRelease
@@ -172,5 +174,13 @@ class IosCutoutDisplayTest {
         assertTrue(srgbIsSrgb || srgbIcc > 0, "the sRGB profile is seen")
         val (p3IsSrgb, p3Icc) = imageIoColorSpace(sanitizedCutoutPng(Base64.decode(IccFixtures.P3_ICC), 24, 16))
         assertTrue(!p3IsSrgb && p3Icc > 0, "the P3 profile is kept and not read as sRGB")
+    }
+
+    @Test
+    fun studioCleanReadsTheVisibleBoundsWithoutChangingTheStoredCutout() = runTest {
+        val id = store.save(stored)
+        val bitmap = store.read(id)!!.decodeToImageBitmap()
+        assertEquals(VisibleBounds(10, 10, 90, 190), computeVisibleBounds(bitmap))
+        assertContentEquals(stored, store.read(id))
     }
 }

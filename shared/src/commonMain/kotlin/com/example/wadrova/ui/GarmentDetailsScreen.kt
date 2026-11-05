@@ -27,6 +27,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,16 +103,43 @@ fun GarmentDetailsScreen(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 16.dp),
         ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(4f / 5f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(WadrovaColors.Studio)
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                GarmentVisual(item, Modifier.fillMaxSize(), PhotoSize.DISPLAY)
+            // Clean presents the cutout the wardrobe shows, so it's offered only when no Mirror extraction takes precedence.
+            val cleanCutout = item.cutoutImageId?.takeIf { item.extractedImageId == null }
+            var clean by remember(item.garment.id) { mutableStateOf(false) }
+            if (cleanCutout != null) {
+                Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FormChip("Original", selected = !clean, enabled = true) { clean = false }
+                    FormChip("Clean", selected = clean, enabled = true) { clean = true }
+                }
+            }
+            val original: @Composable () -> Unit = {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(4f / 5f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(WadrovaColors.Studio)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    GarmentVisual(item, Modifier.fillMaxSize(), PhotoSize.DISPLAY)
+                }
+            }
+            if (clean && cleanCutout != null) {
+                StudioCleanVisual(
+                    item,
+                    cleanCutout,
+                    Modifier.fillMaxWidth().aspectRatio(4f / 5f).clip(RoundedCornerShape(16.dp)),
+                    fallback = original,
+                )
+                Text(
+                    "Clean frames this piece's own cutout on a studio background at a consistent size. Its pixels aren't changed, and nothing is saved.",
+                    Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = WadrovaColors.Ink2,
+                )
+            } else {
+                original()
             }
             if (item.archived) Eyebrow("Archived", Modifier.padding(top = 16.dp))
             Text(

@@ -33,6 +33,17 @@ class PhotoBitmapLoader(private val photos: GarmentPhotoStore, private val gener
      */
     suspend fun loadCutout(id: String): ImageBitmap? = cached("cutout", id, 24) { generated.read(id) }
 
+    private val bounds = LinkedHashMap<String, VisibleBounds>()
+
+    /** The cutout's visible bounds for Studio Clean, read once per id (ids never change meaning). Call from the main thread. */
+    suspend fun cleanBounds(id: String, bitmap: ImageBitmap): VisibleBounds? {
+        bounds[id]?.let { return it }
+        val found = computeVisibleBounds(bitmap) ?: return null
+        bounds[id] = found
+        while (bounds.size > 64) bounds.remove(bounds.keys.first())
+        return found
+    }
+
     private suspend fun cached(group: String, id: String, capacity: Int, read: suspend () -> ByteArray?): ImageBitmap? {
         val entries = cache.getOrPut(group) { LinkedHashMap() }
         entries.remove(id)?.let { hit ->

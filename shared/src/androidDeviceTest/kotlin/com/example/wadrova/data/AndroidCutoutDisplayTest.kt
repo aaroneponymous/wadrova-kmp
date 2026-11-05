@@ -16,6 +16,8 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import com.example.wadrova.ui.VisibleBounds
+import com.example.wadrova.ui.computeVisibleBounds
 import org.jetbrains.compose.resources.decodeToImageBitmap
 
 /** The stored cutout through Android's own decoders: what the app actually draws. */
@@ -143,5 +145,14 @@ class AndroidCutoutDisplayTest {
         assertTrue(space != null && space != ColorSpace.get(ColorSpace.Named.SRGB), "decoded as $space")
         // Decoded in its own color space, so the stored values arrive unchanged.
         assertContentEquals(expectedIccFixturePixels(), pixels)
+    }
+
+    @Test
+    fun studioCleanReadsTheVisibleBoundsWithoutChangingTheStoredCutout() = runTest {
+        val id = store.save(stored)
+        val bitmap = store.read(id)!!.decodeToImageBitmap()
+        // serverStylePixels: opaque garment from 10..89 x 10..189 inside a transparent border.
+        assertEquals(VisibleBounds(10, 10, 90, 190), computeVisibleBounds(bitmap))
+        assertContentEquals(stored, store.read(id))
     }
 }

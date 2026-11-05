@@ -15,7 +15,8 @@ The remote is `origin` (private GitHub `wadrova-kmp`). `fe5a92a` and `fb0f152` o
 | `feature/m4.4-garment-import` | `20c3b70` | M4.4 Add a piece › Extract from photo and durable garment imports (below). Committed, not pushed. |
 | `feature/m4.5-garment-review` | `73a8488` | M4.5 review, save to wardrobe, finalize and corrections (below), then the Wadrova Studio design and S0 findings (`docs/WADROVA_STUDIO_DESIGN.md`, docs only). Pushed up to `2a46af2`; `73a8488` is local. See `docs/HANDOFF_M4_5_TO_NEXT_AGENT.md`. |
 | `feature/m4.5a-transparent-cutouts` | `394ee3f` | M4.5A transparent garment cutouts (`16ea135`) and its repair (ICC cutouts, protected saves), below. Pushed to `origin` on 2026-11-05; not merged. |
-| `feature/m4.5b-cutout-recovery` | from `394ee3f` | M4.5B cutout recovery for existing imported garments (below). Committed locally, not pushed or merged. |
+| `feature/m4.5b-cutout-recovery` | `842bbd4` | M4.5B cutout recovery for existing imported garments (below). Pushed to `origin` on 2026-11-05; not merged. |
+| `feature/m4.5c-studio-clean` | from `842bbd4` | M4.5C deterministic Studio Clean previews (below). Committed locally, not pushed or merged. |
 
 ### Brand Identity Phase 1 commit (on `feature/brand-identity-integration`)
 
@@ -44,6 +45,43 @@ The app no longer ships sample garments. They were 15 illustrated pieces defined
   - **Emulator, upgrade from the Phase 1 build:** a look mixing a photographed user piece with two samples kept its user piece and photo. It showed two unavailable pieces and saved once they were removed, and the change survived a restart.
   - **Emulator, fresh install:** empty Your Items, Your Outfits and picker; first piece added with a photo from the picker route; first look saved; both persisted across a restart. With every piece archived, the archived list is still reachable.
   - **iOS:** builds and tests only; no Simulator interaction.
+
+## M4.5C: Deterministic Studio Clean preview (implemented, awaiting review)
+
+A first, preview-only Studio Clean. It's a deterministic presentation of the garment's real cutout, not AI or generated product photography: no OpenAI, no backend, no schema change and no new stored image.
+
+- **Where:** Garment Details shows Original / Clean chips (`FormChip`) when the garment's displayed image is its transparent cutout, that is, it has a cutout and no Mirror extraction takes precedence. Original is the unchanged `GarmentVisual` tile. Clean is `StudioCleanVisual`, with the caption: "Clean frames this piece's own cutout on a studio background at a consistent size. Its pixels aren't changed, and nothing is saved." The choice lives in the screen only (`remember`, reset per garment), with no Save or Apply.
+- **What Clean does** (`ui/StudioClean.kt`, composed at display time):
+  - Draws a soft Ivory→Studio gradient and a faint elliptical floor shadow (Charcoal, at most 10 % alpha) under the garment's lowest edge.
+  - Draws the cutout's visible region once, scaled once with `FilterQuality.High`.
+  - Layout comes from the pure `cleanLayout`: padding 9 % of the smaller side; one uniform scale, so the aspect ratio is kept and nothing is cropped; horizontal centering; an optical center at 46 % height. A per-category fill gives believable relative sizes (coat/dress 94 %, bottoms 90 %, tops 86 %, footwear 64 %, accessories 62 %), with **upscaling capped at 4× source pixels**.
+  - Visible bounds come from the decoded bitmap's alpha (`visibleBounds`; any alpha > 0 counts, so detached chain links and fringe strands stay in) and are cached per id in `PhotoBitmapLoader` (64 entries of four ints).
+- **What Clean doesn't do:**
+  - It doesn't change, re-encode or re-store the PNG; the ICC profile and alpha are untouched.
+  - No recoloring, sharpening, smoothing, feathering, mask erosion or speck removal.
+  - No invented pixels and no reconstruction of worn garments.
+  - No change to image precedence, the grid, Builder, import, recovery, editing or cleanup.
+- **Real CC0 garments** (isolated `Pixel_9_Pro_Fold`, API 36, the 8 locally saved QA garments; no server use):
+  - The coat and pants frame consistently with a soft floor.
+  - The shoes (85×117 px) and handbag (71×274 px) show small but sharp in Clean, where Original enlarges them into blocky blur. That is the cap's intended tradeoff, but small accessories may read as too small (see refinement below).
+  - No white boxes, color shifts or cropping, and edges are unchanged: SAM 3's stair-stepped mask edges remain visible, by design.
+  - No difficult-silhouette real accessory (such as a scarf) exists locally, so the synthetic chain-bag and fringe fixtures were checked for layout only. Detached chain fragments and fringe strands are kept, which makes the main body smaller.
+- **Tests:**
+  - `StudioCleanTest`: bounds, including specks and faint alpha; every real and extreme aspect fits whole, undistorted and centered in every category; the upscale cap; category sizes; determinism.
+  - Platform tests (Android device, iOS simulator): the real `readPixels` bounds path on a stored cutout, with the stored bytes unchanged afterwards.
+- **Verified (2026-11-05):**
+  - **Tests:** 438 host, 455 iOS simulator, and 458 connected-device tests on API 36 and API 37 pass.
+  - **Builds:** `assembleDebug`, `compileKotlinIosArm64` and `xcodebuild` pass.
+  - **Memory:** with the Clean screens open, the app's memory (about 110 MB total PSS, 32 MB native heap) matched earlier runs.
+- **Not verified:**
+  - iOS visuals (simulator tests only).
+  - Physical devices.
+  - A real difficult accessory.
+  - Scrolling, because Clean appears only on Details.
+- **Refinement candidates (not done):**
+  - A floor on displayed size for tiny accessories, or a source-resolution note.
+  - Whether the floor shadow suits hanging garments as well as shoes and bags.
+- **Persistent preference:** a remembered per-garment Original/Clean choice would need one nullable column (for example `user_garment.display_style`), which means a migration. It's deferred for approval.
 
 ## M4.5B: Recover transparent cutouts for existing imports (implemented, awaiting review)
 
