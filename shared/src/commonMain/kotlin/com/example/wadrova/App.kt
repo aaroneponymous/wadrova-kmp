@@ -30,16 +30,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.wadrova.data.CutoutRecovery
 import com.example.wadrova.data.LocalRepositories
 import com.example.wadrova.ui.BrandSplash
 import com.example.wadrova.ui.BrandSplashViewModel
 import com.example.wadrova.ui.CreateModelScreen
+import com.example.wadrova.ui.CutoutRecoveryViewModel
 import com.example.wadrova.ui.ExtractionScreen
 import com.example.wadrova.ui.GarmentDetailsScreen
 import com.example.wadrova.ui.GarmentFormScreen
 import com.example.wadrova.ui.GarmentImportViewModel
 import com.example.wadrova.ui.ImportConnectionScreen
 import com.example.wadrova.ui.ImportDialogs
+import com.example.wadrova.ui.loadConnection
 import com.example.wadrova.ui.ImportProgressScreen
 import com.example.wadrova.ui.GarmentReviewViewModel
 import com.example.wadrova.ui.ImportReviewScreen
@@ -114,6 +117,19 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
             },
         )
     }
+    val cutoutRecovery = viewModel {
+        CutoutRecoveryViewModel(
+            CutoutRecovery(
+                repositories.garmentImports,
+                repositories.wadrovaApi,
+                repositories.generatedImages,
+                repositories.generatedImageGuard,
+                connection = { loadConnection(repositories.garmentImports, repositories.credentials) },
+            ),
+            // The garment now has a cutout; reloading shows it everywhere.
+            onRecovered = { viewModel.loadRecords() },
+        )
+    }
     val state = viewModel.state
     val mirrorState = mirror.state
     val importState = garmentImports.state
@@ -179,7 +195,18 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
                                 }
                                 Screen.GARMENT_DETAILS -> {
                                     PlatformBackHandler { viewModel.update { it.openWardrobe() } }
-                                    GarmentDetailsScreen(state, viewModel::update, detailsScroll)
+                                    val detail = state.detailItem
+                                    // A local check only; recovering needs the user's tap.
+                                    LaunchedEffect(detail?.garment?.id, detail?.photoId, detail?.cutoutImageId) {
+                                        detail?.garment?.id?.let(cutoutRecovery::check)
+                                    }
+                                    GarmentDetailsScreen(
+                                        state,
+                                        viewModel::update,
+                                        detailsScroll,
+                                        recovery = detail?.let { cutoutRecovery.state[it.garment.id] },
+                                        onRecoverCutout = { detail?.garment?.id?.let(cutoutRecovery::recover) },
+                                    )
                                 }
                                 Screen.BUILDER -> {
                                     PlatformBackHandler { viewModel.update { it.requestLeaveBuilder() } }

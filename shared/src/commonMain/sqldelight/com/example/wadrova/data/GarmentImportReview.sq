@@ -55,6 +55,20 @@ WHERE import_id = ? AND lineage_id = ?;
 deleteReviewChoices:
 DELETE FROM garment_import_review WHERE import_id = ?;
 
+-- An imported garment with its provenance and its import, for recovering its transparent cutout.
+selectCutoutRecoverySource:
+SELECT g.id, g.photo_id, g.cutout_image_id, s.photo_id AS source_photo_id, s.candidate_id, s.revision, s.server_import_id,
+       i.server_session_id, i.state AS import_state
+FROM user_garment g
+JOIN garment_import_source s ON s.garment_id = g.id
+JOIN garment_import i ON i.id = s.import_id
+WHERE g.id = ?;
+
+-- Links a recovered cutout only if the garment still has the photo and cutout state the recovery started from.
+linkRecoveredCutout:
+UPDATE user_garment SET cutout_image_id = :newCutoutId
+WHERE id = :garmentId AND photo_id = :photoId AND cutout_image_id IS :expectedCutoutId;
+
 insertSource:
 INSERT INTO garment_import_source (garment_id, import_id, server_import_id, lineage_id, candidate_id, revision, photo_id, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);

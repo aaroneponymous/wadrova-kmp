@@ -142,7 +142,7 @@ class FakeWadrovaServer : WadrovaApi {
         val missing = lineages.filter { it.mustBeDecided && it.revisions.none { r -> r.id in listed } }.map { it.current.id }
         if (missing.isNotEmpty()) throw WadrovaApiException(ApiFailure.REJECTED, "refused", "invalid_state", "missing_decisions", missing)
         finalized[id] = normalized
-        val done = import.copy(status = "finalized", candidateCount = null, pollAfterSeconds = null)
+        val done = import.copy(status = "finalized", candidateCount = null, pollAfterSeconds = null, acceptedGarments = normalized.accepted.toMap())
         imports[id] = done
         if (loseNextFinalizeResponse) {
             loseNextFinalizeResponse = false

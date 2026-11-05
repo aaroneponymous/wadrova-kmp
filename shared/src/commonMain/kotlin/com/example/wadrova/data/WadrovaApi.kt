@@ -335,6 +335,7 @@ class KtorWadrovaApi(private val client: HttpClient) : WadrovaApi {
             throw WadrovaApiException(ApiFailure.UNAVAILABLE, "Wadrova sent a response this app couldn't read.")
         }
         val failure = this["failure"] as? JsonObject
+        val decisions = (this["finalization"] as? JsonObject)?.get("decisions") as? JsonArray
         return ServerImport(
             id = id,
             clientRef = string("client_ref"),
@@ -343,6 +344,12 @@ class KtorWadrovaApi(private val client: HttpClient) : WadrovaApi {
             candidateCount = int("candidate_count"),
             failureMessage = failure?.string("message"),
             pollAfterSeconds = int("poll_after_seconds"),
+            acceptedGarments = decisions?.mapNotNull { element ->
+                val decision = element as? JsonObject ?: return@mapNotNull null
+                val candidate = decision.string("candidate_id")
+                val garment = decision.string("client_garment_id")
+                if (decision.string("decision") == "accepted" && candidate != null && garment != null) candidate to garment else null
+            }?.toMap(),
         )
     }
 

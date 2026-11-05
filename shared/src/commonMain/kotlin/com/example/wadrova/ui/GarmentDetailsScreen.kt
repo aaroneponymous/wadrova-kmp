@@ -42,6 +42,8 @@ fun GarmentDetailsScreen(
     state: WardrobeUiState,
     update: ((WardrobeUiState) -> WardrobeUiState) -> Unit,
     scroll: ScrollState,
+    recovery: CutoutRecoveryUi? = null,
+    onRecoverCutout: () -> Unit = {},
 ) {
     val item = state.detailItem
     Column(
@@ -120,6 +122,7 @@ fun GarmentDetailsScreen(
             DetailRow("Color", item.colorName)
             item.brand?.takeIf { it.isNotBlank() }?.let { DetailRow("Brand", it) }
             item.material?.takeIf { it.isNotBlank() }?.let { DetailRow("Material", it) }
+            recovery?.let { CutoutRecoverySection(it, onRecoverCutout) }
         }
         // Archived pieces stay out of new looks. Editing the piece can restore it.
         if (!item.archived) {
@@ -130,6 +133,34 @@ fun GarmentDetailsScreen(
                     .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp),
                 dark = true,
             ) { update { it.requestStylePiece(item) } }
+        }
+    }
+}
+
+/** Offered only for an imported piece saved before cutouts were kept (or whose cutout file is missing). */
+@Composable
+private fun CutoutRecoverySection(recovery: CutoutRecoveryUi, onRecover: () -> Unit) {
+    if (!recovery.available && recovery.message == null) return
+    Column(Modifier.padding(top = 16.dp)) {
+        if (recovery.available) {
+            Text(
+                "This piece shows its photo on a white background. Its transparent cutout can be downloaded again from Wadrova.",
+                style = MaterialTheme.typography.bodySmall,
+                color = WadrovaColors.Ink2,
+            )
+            ActionButton(
+                when {
+                    recovery.working -> "Restoring cutout…"
+                    recovery.canRetry -> "Try again"
+                    else -> "Restore transparent cutout"
+                },
+                Modifier.padding(top = 8.dp),
+                enabled = !recovery.working,
+                onClick = onRecover,
+            )
+        }
+        recovery.message?.let {
+            Text(it, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = WadrovaColors.Charcoal)
         }
     }
 }

@@ -305,4 +305,18 @@ class KtorWadrovaApiTest {
         api.getCorrection(connection, "cor_1")
         assertEquals("https://api.test/v1/corrections/cor_1", requests[3].url.toString())
     }
+
+    @Test
+    fun aFinalizedImportCarriesItsAcceptedCandidateToGarmentMapping() = runTest {
+        val finalization = """"finalization": {"finalized_at": "2026-11-05T03:15:46Z", "accepted_count": 1, "rejected_count": 1,
+            "decisions": [
+              {"candidate_id": "cnd_a", "lineage_id": "cnd_a", "revision": 1, "decision": "accepted", "client_garment_id": "user-1", "superseded": false},
+              {"candidate_id": "cnd_b", "lineage_id": "cnd_b", "revision": 1, "decision": "rejected", "client_garment_id": null, "superseded": false}
+            ]}"""
+        val body = importJson("finalized").replace("\"finalization\":null", finalization)
+        assertTrue(finalization in body)
+        val finalized = api { json(body) }.getImport(connection, "imp_1")
+        assertEquals(mapOf("cnd_a" to "user-1"), finalized.acceptedGarments)
+        assertEquals(null, api { json(importJson("ready")) }.getImport(connection, "imp_1").acceptedGarments)
+    }
 }

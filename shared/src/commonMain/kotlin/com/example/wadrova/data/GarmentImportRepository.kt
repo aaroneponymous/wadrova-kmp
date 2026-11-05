@@ -77,7 +77,29 @@ interface GarmentImportRepository {
 
     /** Which of [imageIds] a garment uses as its photo or cutout; such files must never be deleted by a save's cleanup. */
     suspend fun linkedImageIds(imageIds: Collection<String>): Set<String>
+
+    /** An imported garment's provenance, for recovering its transparent cutout. Null for a garment that wasn't imported. */
+    suspend fun cutoutRecoverySource(garmentId: String): CutoutRecoverySource?
+
+    /**
+     * Links [newCutoutId] to the garment only if its photo is still [photoId] and its cutout is still
+     * [expectedCutoutId] (null, or the id whose file is missing). Changes nothing else. False if it no longer matches.
+     */
+    suspend fun linkRecoveredCutout(garmentId: String, photoId: String, expectedCutoutId: String?, newCutoutId: String): Boolean
 }
+
+/** Where an imported garment came from: its current images, the exact accepted candidate and its import. */
+data class CutoutRecoverySource(
+    val garmentId: String,
+    val photoId: String?,
+    val cutoutImageId: String?,
+    val sourcePhotoId: String,
+    val candidateId: String,
+    val revision: Int,
+    val serverImportId: String,
+    val serverSessionId: String?,
+    val importState: ImportState?,
+)
 
 /**
  * One accepted lineage, ready to become a garment. [photoId] is the already stored, verified cutout flattened onto
@@ -258,6 +280,29 @@ class SqlDelightGarmentImportRepository(
             (queries.selectLinkedPhotoIds(ids).executeAsList() + queries.selectLinkedCutoutIds(ids).executeAsList()).toSet()
         }
     }
+
+    override suspend fun cutoutRecoverySource(garmentId: String): CutoutRecoverySource? = withContext(dispatcher) {
+        reviews.selectCutoutRecoverySource(garmentId).executeAsOneOrNull()?.let { row ->
+            CutoutRecoverySource(
+                garmentId = row.id,
+                photoId = row.photo_id,
+                cutoutImageId = row.cutout_image_id,
+                sourcePhotoId = row.source_photo_id,
+                candidateId = row.candidate_id,
+                revision = row.revision.toInt(),
+                serverImportId = row.server_import_id,
+                serverSessionId = row.server_session_id,
+                importState = ImportState.entries.find { it.name == row.import_state },
+            )
+        }
+    }
+
+    override suspend fun linkRecoveredCutout(garmentId: String, photoId: String, expectedCutoutId: String?, newCutoutId: String): Boolean =
+        withContext(dispatcher) {
+            reviews.transactionWithResult {
+                reviews.linkRecoveredCutout(newCutoutId, garmentId, photoId, expectedCutoutId).value == 1L
+            }
+        }
 
     override suspend fun markFinalizeSent(importId: String) {
         withContext(dispatcher) {

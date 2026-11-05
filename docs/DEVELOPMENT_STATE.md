@@ -14,7 +14,8 @@ The remote is `origin` (private GitHub `wadrova-kmp`). `fe5a92a` and `fb0f152` o
 | `foundation`, `feature/wardrobe-outfit-builder`, `feature/openai-mirror-mvp` | older | Earlier milestones, superseded by the branches above. |
 | `feature/m4.4-garment-import` | `20c3b70` | M4.4 Add a piece › Extract from photo and durable garment imports (below). Committed, not pushed. |
 | `feature/m4.5-garment-review` | `73a8488` | M4.5 review, save to wardrobe, finalize and corrections (below), then the Wadrova Studio design and S0 findings (`docs/WADROVA_STUDIO_DESIGN.md`, docs only). Pushed up to `2a46af2`; `73a8488` is local. See `docs/HANDOFF_M4_5_TO_NEXT_AGENT.md`. |
-| `feature/m4.5a-transparent-cutouts` | from `73a8488` | M4.5A transparent garment cutouts (`16ea135`) and its repair (ICC cutouts, protected saves), below. Committed locally, not pushed or merged. |
+| `feature/m4.5a-transparent-cutouts` | `394ee3f` | M4.5A transparent garment cutouts (`16ea135`) and its repair (ICC cutouts, protected saves), below. Pushed to `origin` on 2026-11-05; not merged. |
+| `feature/m4.5b-cutout-recovery` | from `394ee3f` | M4.5B cutout recovery for existing imported garments (below). Committed locally, not pushed or merged. |
 
 ### Brand Identity Phase 1 commit (on `feature/brand-identity-integration`)
 
@@ -43,6 +44,51 @@ The app no longer ships sample garments. They were 15 illustrated pieces defined
   - **Emulator, upgrade from the Phase 1 build:** a look mixing a photographed user piece with two samples kept its user piece and photo. It showed two unavailable pieces and saved once they were removed, and the change survived a restart.
   - **Emulator, fresh install:** empty Your Items, Your Outfits and picker; first piece added with a photo from the picker route; first look saved; both persisted across a restart. With every piece archived, the archived list is still reachable.
   - **iOS:** builds and tests only; no Simulator interaction.
+
+## M4.5B: Recover transparent cutouts for existing imports (implemented, awaiting review)
+
+Garments imported before M4.5A, or whose cutout file is missing, can get their transparent cutout from the server again. Nothing runs automatically: there is no startup pass, and Details checks eligibility locally only. Each download is one user tap. No SAM 3 rerun, no backend change and no schema change; the new SQL is queries only, so the database stays at version 8.
+
+- **Entry point:** Garment Details shows "Restore transparent cutout" (with a short explanation) for an eligible piece, then "Restoring cutout…" and either "Transparent cutout restored." or a plain failure message. `CutoutRecoveryViewModel` (`ui/CutoutRecoveryState.kt`) holds the per-garment state, and a success reloads the wardrobe.
+- **Eligibility** (`data/CutoutRecovery.kt`, local only):
+  - The garment has `garment_import_source` provenance (manual garments don't).
+  - Its `photo_id` still equals the provenance photo (it wasn't replaced or removed).
+  - Its import is `COMPLETED` with a session.
+  - Its `cutout_image_id` is null or names a missing file.
+- **Proof from the server:** `GET /v1/imports/{id}` must show the import finalized with the same session. The client now reads `finalization.decisions` into `ServerImport.acceptedGarments`, and the recorded decisions must map the provenance candidate to this exact garment id, which also proves the connection is the right account and server. The exact saved revision is then taken from the session's candidates (`include=superseded`).
+- **Download and storage:**
+  - The cutout is downloaded, and `assetContent` refuses bytes that don't match their SHA-256.
+  - It is sanitized like a new import's (`sanitizedCutoutPng`: recorded size checked, ICC profile kept, hidden RGB cleared), then stored under `GeneratedImageGuard`.
+  - It is linked by `linkRecoveredCutout`, a conditional `UPDATE` that sets only `cutout_image_id` and only while the photo and cutout are unchanged (`cutout_image_id IS` the expected value). A cancel before the link links nothing. The link itself is `NonCancellable`. An unlinked file is deleted after a reference check, and the launch sweep covers a process kill.
+  - The garment id, photo, metadata, `updated_at`, provenance, decisions, finalization and saved looks are never touched.
+- **Failures:**
+  - Offline, unavailable and checksum mismatch → "Try again later", retryable.
+  - Expired token or no connection → "Connect to Wadrova…", retryable.
+  - Missing import, candidate or asset, a 404, or a mismatched server record (`NOT_ON_SERVER`), and an invalid or wrong-size PNG (`UNUSABLE`), are permanent. They are remembered for the session, so the same unavailable asset isn't requested again.
+  - A storage failure is retryable. A photo change during recovery returns `CHANGED`, and nothing is linked.
+  - A concurrent second attempt is a no-op. Each attempt logs one `diagnostic` line, `Cutout recovery: <RESULT>`.
+- **Tests:** `CutoutRecoveryTest` has 18 cases covering:
+  - eligibility, and exclusion of manual, replaced-photo and unsynced garments
+  - the no-op second attempt, missing-file replacement and exact revision selection
+  - server-record mismatch, missing import, candidate or asset, offline, 401 and no connection
+  - checksum and invalid-PNG refusal, storage failure, and the conditional link
+  - a photo replaced mid-recovery, two concurrent recoveries, and cancels before and during the link
+  - the launch sweep and saved-look references, and the screen's local-only check, permanent-failure memory and retry
+
+  `KtorWadrovaApiTest` also covers the finalization-decision parsing.
+- **Verified (2026-11-05):**
+  - **Tests:** 433 host, 449 iOS simulator and 452 connected-device tests on API 36 and API 37 pass.
+  - **Builds:** `assembleDebug`, `compileKotlinIosArm64` and `xcodebuild` pass.
+- **Live recovery** (isolated `Pixel_9_Pro_Fold`, API 36, account `kmp-m45a-qa`, the earlier CC0 import `imp_6b8bd4cd…`; no new import, Razer not needed):
+  - All four garments saved before M4.5A recovered (`RECOVERED` ×4). Each stored PNG has the server's profile, identical visible RGBA and alpha, and RGB 0 under transparent pixels.
+  - Their JPEG photos and photo links are unchanged, and the database still has 30 garments with no duplicates.
+  - White boxes are gone on Your Items, Details and the moodboard.
+  - The cutouts survived a force-stop, relaunch and launch sweep. Reopening offers nothing and downloads nothing.
+  - The server's import record was byte-identical before and after.
+- **Not verified:**
+  - iOS interaction (simulator tests only).
+  - Android API 24–35 and physical devices.
+  - A garment whose server copy was deleted by retention (no retention exists yet; covered by tests as `NOT_ON_SERVER`).
 
 ## M4.5A: Transparent garment cutouts (implemented, awaiting review)
 

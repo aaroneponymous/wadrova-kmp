@@ -61,6 +61,8 @@ data class ServerImport(
     val candidateCount: Int?,
     val failureMessage: String?,
     val pollAfterSeconds: Int?,
+    /** For a finalized import: which candidate became which client garment id, as the server recorded it. */
+    val acceptedGarments: Map<String, String>? = null,
 )
 
 data class GarmentImport(
