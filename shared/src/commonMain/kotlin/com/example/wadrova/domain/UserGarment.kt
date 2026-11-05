@@ -11,4 +11,6 @@ data class UserGarment(
     val photoId: String? = null,
     /** An approved background-removed version, kept alongside the photo rather than replacing it. */
     val extractedImageId: String? = null,
+    /** An imported garment's transparent cutout (the real segmented pixels); [photoId] stays its flattened copy. */
+    val cutoutImageId: String? = null,
 )

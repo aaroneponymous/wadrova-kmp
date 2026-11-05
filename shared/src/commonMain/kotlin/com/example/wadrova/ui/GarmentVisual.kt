@@ -27,6 +27,12 @@ class PhotoBitmapLoader(private val photos: GarmentPhotoStore, private val gener
     /** Returns null if the file is missing or can't be decoded. Call from the main thread. */
     suspend fun loadGenerated(id: String): ImageBitmap? = cached("generated", id, 4) { generated.read(id) }
 
+    /**
+     * A garment's transparent cutout. Cutouts stand in for photos across the wardrobe grid, so they get the
+     * thumbnail-sized cache: they're cropped to the garment and usually smaller than a display photo.
+     */
+    suspend fun loadCutout(id: String): ImageBitmap? = cached("cutout", id, 24) { generated.read(id) }
+
     private suspend fun cached(group: String, id: String, capacity: Int, read: suspend () -> ByteArray?): ImageBitmap? {
         val entries = cache.getOrPut(group) { LinkedHashMap() }
         entries.remove(id)?.let { hit ->
@@ -83,6 +89,15 @@ fun PhotoOrFallback(
     fallback: @Composable () -> Unit,
 ) = LoadedImage(photoId to size, description, modifier, fallback) { it.load(photoId, size) }
 
+/** Shows a garment's transparent cutout uncropped, or [fallback] if the file is unavailable. */
+@Composable
+fun CutoutOrFallback(
+    imageId: String,
+    description: String,
+    modifier: Modifier = Modifier,
+    fallback: @Composable () -> Unit,
+) = LoadedImage(imageId, description, modifier, fallback) { it.loadCutout(imageId) }
+
 /** Shows a generated image uncropped, or [fallback] if the file is unavailable. */
 @Composable
 fun GeneratedImageOrFallback(
@@ -92,9 +107,28 @@ fun GeneratedImageOrFallback(
     fallback: @Composable () -> Unit,
 ) = LoadedImage(imageId, description, modifier, fallback) { it.loadGenerated(imageId) }
 
+/** One of a garment's stored images. */
+internal sealed interface StoredImage {
+    val id: String
+
+    data class Extracted(override val id: String) : StoredImage
+    data class Cutout(override val id: String) : StoredImage
+    data class Photo(override val id: String) : StoredImage
+}
+
 /**
- * The garment's approved extraction where it has one, then its photo, then its illustration,
- * trimmed to its outline if [trimIllustration] is set.
+ * The images a garment can show, best first: the approved extraction the user chose in Mirror, then the transparent
+ * cutout of an imported garment, then the photo. Each is tried in turn when an earlier one's file is missing.
+ */
+internal fun WardrobeItem.storedImages(): List<StoredImage> = listOfNotNull(
+    extractedImageId?.let { StoredImage.Extracted(it) },
+    cutoutImageId?.let { StoredImage.Cutout(it) },
+    photoId?.let { StoredImage.Photo(it) },
+)
+
+/**
+ * The garment's best available image ([storedImages]), or its illustration, trimmed to its outline if
+ * [trimIllustration] is set.
  */
 @Composable
 fun GarmentVisual(
@@ -102,19 +136,26 @@ fun GarmentVisual(
     modifier: Modifier = Modifier,
     size: PhotoSize = PhotoSize.THUMBNAIL,
     trimIllustration: Boolean = false,
+) = StoredImageOrNext(item.storedImages(), item, modifier, size, trimIllustration)
+
+@Composable
+private fun StoredImageOrNext(
+    images: List<StoredImage>,
+    item: WardrobeItem,
+    modifier: Modifier,
+    size: PhotoSize,
+    trimIllustration: Boolean,
 ) {
-    val photoOrIllustration: @Composable () -> Unit = {
-        val photoId = item.photoId
-        if (photoId == null) {
-            GarmentIllustration(item, modifier, trimIllustration)
-        } else {
-            PhotoOrFallback(photoId, size, "Photo of ${item.name}", modifier) { GarmentIllustration(item, modifier, trimIllustration) }
-        }
+    val image = images.firstOrNull()
+    if (image == null) {
+        GarmentIllustration(item, modifier, trimIllustration)
+        return
     }
-    val extractedId = item.extractedImageId
-    if (extractedId == null) {
-        photoOrIllustration()
-    } else {
-        GeneratedImageOrFallback(extractedId, "Photo of ${item.name}", modifier, photoOrIllustration)
+    val next: @Composable () -> Unit = { StoredImageOrNext(images.drop(1), item, modifier, size, trimIllustration) }
+    val description = "Photo of ${item.name}"
+    when (image) {
+        is StoredImage.Extracted -> GeneratedImageOrFallback(image.id, description, modifier, next)
+        is StoredImage.Cutout -> CutoutOrFallback(image.id, description, modifier, next)
+        is StoredImage.Photo -> PhotoOrFallback(image.id, size, description, modifier, next)
     }
 }

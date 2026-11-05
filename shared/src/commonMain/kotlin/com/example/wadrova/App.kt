@@ -105,6 +105,8 @@ fun App(replayIntro: Boolean = false, createRepositories: () -> LocalRepositorie
             repositories.wadrovaApi,
             repositories.credentials,
             repositories.photos,
+            repositories.generatedImages,
+            repositories.generatedImageGuard,
             onSaved = { importId ->
                 garmentImports.piecesSaved(importId)
                 // The saved pieces are ordinary garments now; reloading shows them in Your Items and the Builder.

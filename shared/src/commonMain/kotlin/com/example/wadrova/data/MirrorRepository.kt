@@ -39,7 +39,10 @@ interface MirrorRepository {
 
     suspend fun saveBackendConfig(config: BackendConfig)
 
-    /** Deletes generated files nothing refers to, such as unapproved results left by a crash. */
+    /**
+     * Deletes generated files nothing refers to, such as unapproved results left by a crash. Garment extractions and
+     * cutouts count as references; the sweep runs under [GeneratedImageGuard] so a file being linked is never taken.
+     */
     suspend fun removeUnreferencedImages()
 }
 
@@ -52,6 +55,7 @@ class SqlDelightMirrorRepository(
     private val newId: () -> String = { Uuid.random().toString() },
     private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val guard: GeneratedImageGuard = GeneratedImageGuard(),
 ) : MirrorRepository {
     private val database = WadrovaDatabase(driver)
     private val queries = database.mirrorQueries
@@ -160,13 +164,16 @@ class SqlDelightMirrorRepository(
         }
     }
 
-    override suspend fun removeUnreferencedImages() = withContext(dispatcher) {
-        val referenced = queries.transactionWithResult {
-            queries.selectModelImageIds().executeAsList() +
-                queries.selectTryOnImageIds().executeAsList() +
-                database.garmentQueries.selectExtractedImageIds().executeAsList()
-        }.toSet()
-        (images.storedIds() - referenced).forEach { deleteQuietly(it) }
+    override suspend fun removeUnreferencedImages() = guard.exclusive {
+        withContext(dispatcher) {
+            val referenced = queries.transactionWithResult {
+                queries.selectModelImageIds().executeAsList() +
+                    queries.selectTryOnImageIds().executeAsList() +
+                    database.garmentQueries.selectExtractedImageIds().executeAsList() +
+                    database.garmentQueries.selectCutoutImageIds().executeAsList()
+            }.toSet()
+            (images.storedIds() - referenced).forEach { deleteQuietly(it) }
+        }
     }
 
     /** A file that can't be deleted now is cleared by the next [removeUnreferencedImages]. */

@@ -273,6 +273,7 @@ private fun PhotoSection(
     val busy = form.saving || form.importingPhoto
     val saved = form.editing?.takeIf { it.photoId != null && it.photoId == form.photoId }
     val extractedId = saved?.extractedImageId
+    val cutoutId = saved?.cutoutImageId
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Box(
             Modifier
@@ -282,13 +283,18 @@ private fun PhotoSection(
             contentAlignment = Alignment.Center,
         ) {
             val photoId = form.photoId
+            val photo: @Composable () -> Unit = {
+                if (photoId != null) {
+                    PhotoOrFallback(photoId, PhotoSize.DISPLAY, "Photo of this piece", Modifier.fillMaxSize()) { Hint("Photo unavailable") }
+                }
+            }
             when {
                 extractedId != null -> GeneratedImageOrFallback(extractedId, "Extracted image of this piece", Modifier.fillMaxSize()) {
                     Hint("Unavailable")
                 }
-                photoId != null -> PhotoOrFallback(photoId, PhotoSize.DISPLAY, "Photo of this piece", Modifier.fillMaxSize()) {
-                    Hint("Photo unavailable")
-                }
+                // The saved cutout shows only while the saved photo is kept; a newly picked photo shows itself.
+                cutoutId != null -> CutoutOrFallback(cutoutId, "Photo of this piece", Modifier.fillMaxSize(), photo)
+                photoId != null -> photo()
                 else -> Text(
                     if (form.importingPhoto) "Adding…" else "No photo",
                     style = MaterialTheme.typography.bodySmall,

@@ -258,6 +258,31 @@ private object SchemaV6 : SqlSchema<QueryResult.Value<Unit>> {
     ): QueryResult.Value<Unit> = QueryResult.Unit
 }
 
+/** Version 7 froze finalize decisions (`finalize_sent_at`); a saved import's garment has a photo and an extraction. */
+private object SchemaV7 : SqlSchema<QueryResult.Value<Unit>> {
+    override val version = 7L
+
+    override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
+        SchemaV6.create(driver)
+        driver.execute(null, "ALTER TABLE garment_import ADD COLUMN finalize_sent_at INTEGER", 0)
+        driver.execute(null, "UPDATE garment_import SET finalize_sent_at = 40 WHERE id = 'kmp-imp-1'", 0)
+        driver.execute(
+            null,
+            "INSERT INTO user_garment VALUES ('user-g1', 'Coat', 'OUTERWEAR', 'Grey', NULL, NULL, 30, 31, NULL, 'cut-photo', 'cut-extracted')",
+            0,
+        )
+        driver.execute(null, "INSERT INTO garment_import_source VALUES ('user-g1', 'kmp-imp-1', 'imp_1', 'cnd_a', 'cnd_a', 1, 'cut-photo', 30)", 0)
+        return QueryResult.Unit
+    }
+
+    override fun migrate(
+        driver: SqlDriver,
+        oldVersion: Long,
+        newVersion: Long,
+        vararg callbacks: AfterVersion,
+    ): QueryResult.Value<Unit> = QueryResult.Unit
+}
+
 class SchemaMigrationTest {
     private val databaseName = "migration_test"
 
@@ -434,6 +459,56 @@ class SchemaMigrationTest {
             assertEquals(frozenAt, imports.get("kmp-imp-1")!!.finalizeSentAt)
         } finally {
             driver.close()
+        }
+    }
+
+    @Test
+    fun versionSevenDatabaseUpgradesWithPhotosAndExtractionsIntactAndNoCutouts() = runTest {
+        val oldDriver = openTestDatabase(databaseName, SchemaV7)
+        oldDriver.executeQuery(null, "SELECT COUNT(*) FROM user_garment", { QueryResult.Value(it.next().value) }, 0)
+        oldDriver.close()
+
+        val driver = openTestDatabase(databaseName)
+        try {
+            assertEquals(8L, WadrovaDatabase.Schema.version)
+            val images = FakeGeneratedImageStore().apply { put("cut-extracted"); put("stray") }
+            val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(mutableSetOf("photo-1", "cut-photo")), images)
+            val all = garments.getAll().associateBy { it.garment.id }
+            assertEquals(setOf("user-1", "user-g1"), all.keys)
+            assertEquals("photo-1", all.getValue("user-1").photoId)
+            assertEquals("extracted-1", all.getValue("user-1").extractedImageId)
+            assertEquals("cut-photo", all.getValue("user-g1").photoId)
+            assertEquals("cut-extracted", all.getValue("user-g1").extractedImageId)
+            assertTrue(all.values.all { it.cutoutImageId == null })
+            val imports = SqlDelightGarmentImportRepository(driver)
+            assertEquals(40L, imports.get("kmp-imp-1")!!.finalizeSentAt)
+            assertEquals(listOf("user-g1"), imports.savedGarmentIds("kmp-imp-1"))
+
+            // The new column takes part in the sweep: the extraction stays, nothing else is referenced.
+            SqlDelightMirrorRepository(driver, images, FakeCredentialStore(), "http://default").removeUnreferencedImages()
+            assertEquals(setOf("cut-extracted"), images.stored.keys)
+        } finally {
+            driver.close()
+        }
+    }
+
+    @Test
+    fun everyEarlierVersionUpgradesToVersionEightWithNoCutouts() = runTest {
+        for (old in listOf(SchemaV2, SchemaV3, SchemaV4, SchemaV5, SchemaV6, SchemaV7)) {
+            deleteTestDatabase(databaseName)
+            val oldDriver = openTestDatabase(databaseName, old)
+            oldDriver.executeQuery(null, "SELECT COUNT(*) FROM user_garment", { QueryResult.Value(it.next().value) }, 0)
+            oldDriver.close()
+            val driver = openTestDatabase(databaseName)
+            try {
+                val version = driver.executeQuery(null, "PRAGMA user_version", { cursor -> cursor.next(); QueryResult.Value(cursor.getLong(0)) }, 0).value
+                assertEquals(8L, version, "from version ${old.version}")
+                val garments = SqlDelightGarmentRepository(driver, FakePhotoStore(), FakeGeneratedImageStore()).getAll()
+                assertTrue(garments.isNotEmpty(), "from version ${old.version}")
+                assertTrue(garments.all { it.cutoutImageId == null }, "from version ${old.version}")
+            } finally {
+                driver.close()
+            }
         }
     }
 }

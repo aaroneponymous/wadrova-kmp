@@ -10,12 +10,16 @@ import com.example.wadrova.data.CredentialStore
 import com.example.wadrova.data.GarmentDetails
 import com.example.wadrova.data.GarmentImportRepository
 import com.example.wadrova.data.GarmentPhotoStore
+import com.example.wadrova.data.GeneratedImageGuard
+import com.example.wadrova.data.GeneratedImageStore
 import com.example.wadrova.data.InvalidGarmentException
 import com.example.wadrova.data.ReviewedPiece
 import com.example.wadrova.data.WadrovaApi
 import com.example.wadrova.data.WadrovaApiException
 import com.example.wadrova.data.WadrovaConnection
+import com.example.wadrova.data.sanitizedCutoutPng
 import com.example.wadrova.domain.Candidate
+import com.example.wadrova.domain.CandidateAsset
 import com.example.wadrova.domain.GarmentCategory
 import com.example.wadrova.domain.ImportState
 import com.example.wadrova.domain.Lineage
@@ -27,9 +31,12 @@ import com.example.wadrova.domain.groupLineages
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** A point the user placed for a points correction, in source-photo pixels. */
 data class CorrectionPoint(val x: Int, val y: Int, val positive: Boolean)
@@ -105,8 +112,13 @@ class GarmentReviewViewModel(
     private val api: WadrovaApi,
     private val credentials: CredentialStore,
     private val photos: GarmentPhotoStore,
+    /** Where transparent cutouts are kept, beside the flattened photo each garment still gets. */
+    private val generated: GeneratedImageStore,
+    private val imageGuard: GeneratedImageGuard,
     private val onSaved: (importId: String) -> Unit,
     private val newKey: () -> String = { "kmp-cor-${Uuid.random()}" },
+    /** Decoding and re-encoding a cutout is CPU work, kept off the main thread. */
+    private val imageDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
     var state by mutableStateOf(ReviewUiState())
         private set
@@ -369,6 +381,10 @@ class GarmentReviewViewModel(
      * garments, their provenance and the decisions, and the import is handed over for finishing with the server.
      * Photos stored by an attempt that doesn't reach the transaction are deleted. The flag set before suspending
      * blocks a second tap.
+     *
+     * Each piece also keeps its cutout as a transparent PNG when it can ([keepCutout]). That's an addition: a cutout
+     * that can't be kept leaves the piece with its photo, and never changes what's saved or sent to the server. The
+     * cutouts are written and linked under [imageGuard], so the generated-image sweep can't remove them in between.
      */
     fun save() {
         val importId = state.importId ?: return
@@ -384,6 +400,7 @@ class GarmentReviewViewModel(
         state = state.copy(saving = true, confirmingFinishEmpty = false, saveError = null, saveProgress = "Checking your pieces")
         viewModelScope.launch {
             val staged = mutableListOf<String>()
+            val stagedCutouts = mutableListOf<String>()
             try {
                 val connection = connection() ?: throw ReviewException("Connect to Wadrova to save these pieces.")
                 val item = imports.get(importId) ?: throw ReviewException("This import is no longer on this device.")
@@ -392,23 +409,34 @@ class GarmentReviewViewModel(
                 val current = state.copy(lineages = lineages)
                 val manifest = buildManifest(lineages, current.choices)
                 val selected = current.selected
-                val pieces = selected.mapIndexed { index, lineage ->
+                val downloaded = selected.mapIndexed { index, lineage ->
                     state = state.copy(saveProgress = "Saving piece ${index + 1} of ${selected.size}")
                     val candidate = current.shown(lineage)
                     val bytes = state.images[candidate.cutout.id] ?: api.assetContent(connection, candidate.cutout)
                     val photoId = photos.importBytes(bytes).also { staged += it }
-                    ReviewedPiece(
-                        garmentId = current.choice(lineage).garmentId,
-                        details = GarmentDetails(current.name(lineage), current.category(lineage)!!, current.color(lineage)!!),
-                        photoId = photoId,
-                        lineageId = lineage.id,
-                        candidateId = candidate.id,
-                        revision = candidate.revision,
-                    )
+                    DownloadedPiece(lineage, candidate, photoId, bytes)
                 }
-                val unused = imports.saveReviewedPieces(importId, pieces, manifest)
-                staged.clear()
+                val (pieces, unused) = imageGuard.exclusive {
+                    val pieces = downloaded.map { piece ->
+                        val lineage = piece.lineage
+                        ReviewedPiece(
+                            garmentId = current.choice(lineage).garmentId,
+                            details = GarmentDetails(current.name(lineage), current.category(lineage)!!, current.color(lineage)!!),
+                            photoId = piece.photoId,
+                            lineageId = lineage.id,
+                            candidateId = piece.candidate.id,
+                            revision = piece.candidate.revision,
+                            cutoutImageId = keepCutout(piece.bytes, piece.candidate.cutout)?.also { stagedCutouts += it },
+                        )
+                    }
+                    val unused = imports.saveReviewedPieces(importId, pieces, manifest)
+                    staged.clear()
+                    stagedCutouts.clear()
+                    pieces to unused
+                }
                 unused.forEach { quietly { photos.delete(it) } }
+                // A piece that was already saved keeps what it has; the cutout made for it now isn't needed.
+                pieces.filter { it.photoId in unused }.mapNotNull { it.cutoutImageId }.forEach { quietly { generated.delete(it) } }
                 state = state.copy(saving = false, saveProgress = null, savedCount = pieces.size - unused.size, detailLineageId = null)
                 onSaved(importId)
             } catch (e: CancellationException) {
@@ -424,8 +452,18 @@ class GarmentReviewViewModel(
                 state = state.copy(saving = false, saveProgress = null, saveError = "$message Nothing was saved, so you can try again.")
             } finally {
                 staged.forEach { quietly { photos.delete(it) } }
+                stagedCutouts.forEach { quietly { generated.delete(it) } }
             }
         }
+    }
+
+    /**
+     * The verified cutout kept as a transparent PNG with no color under its transparent pixels, or null if it can't be
+     * kept (an unexpected format, or storage failing). The piece then simply shows its photo.
+     */
+    private suspend fun keepCutout(bytes: ByteArray, asset: CandidateAsset): String? = quietly {
+        val png = withContext(imageDispatcher) { sanitizedCutoutPng(bytes, asset.width, asset.height) }
+        generated.save(png)
     }
 
     private suspend fun connection(): WadrovaConnection? = quietly { loadConnection(imports, credentials) }
@@ -439,6 +477,9 @@ class GarmentReviewViewModel(
     }
 
     private class ReviewException(message: String) : Exception(message)
+
+    /** A selected piece whose verified cutout is downloaded and stored as its photo, before the transaction. */
+    private class DownloadedPiece(val lineage: Lineage, val candidate: Candidate, val photoId: String, val bytes: ByteArray)
 
     companion object {
         const val LOAD_FAILED = "Couldn't load your pieces. Check your connection and try again."

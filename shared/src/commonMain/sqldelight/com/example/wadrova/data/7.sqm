@@ -1,0 +1,2 @@
+-- The garment's transparent cutout, kept beside its photo. Existing garments have none.
+ALTER TABLE user_garment ADD COLUMN cutout_image_id TEXT;

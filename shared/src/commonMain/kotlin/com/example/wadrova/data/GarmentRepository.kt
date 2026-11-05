@@ -35,7 +35,8 @@ interface GarmentRepository {
 
     /**
      * Keeps the garment's id. A garment used by a saved look can't change category. Throws like [create].
-     * A replaced or removed photo's files are deleted only after the database change has committed.
+     * A replaced or removed photo's files are deleted only after the database change has committed, together with
+     * the extraction and cutout that came from it.
      */
     suspend fun update(id: String, details: GarmentDetails, photo: PhotoChange = PhotoChange.Keep): UserGarment
 
@@ -87,6 +88,7 @@ class SqlDelightGarmentRepository(
         val now = nowMillis()
         var replacedPhotoId: String? = null
         var staleExtractionId: String? = null
+        var staleCutoutId: String? = null
         val updated = queries.transactionWithResult {
             val existing = requireGarment(id)
             if (existing.garment.category != clean.category && queries.countLooksUsingGarment(id).executeAsOne() > 0) {
@@ -97,18 +99,23 @@ class SqlDelightGarmentRepository(
                 PhotoChange.Remove -> null
                 is PhotoChange.Set -> photo.photoId
             }
-            // An extraction was made from the old photo, so it can't outlive it.
+            // An extraction was made from the old photo and a cutout was saved with it, so neither can outlive it.
             val photoChanged = newPhotoId != existing.photoId
             if (photoChanged) {
                 replacedPhotoId = existing.photoId
                 staleExtractionId = existing.extractedImageId
+                staleCutoutId = existing.cutoutImageId
             }
             val extractedImageId = if (photoChanged) null else existing.extractedImageId
-            queries.updateGarment(clean.name, clean.category.name, clean.color, clean.brand, clean.material, newPhotoId, extractedImageId, now, id)
+            val cutoutImageId = if (photoChanged) null else existing.cutoutImageId
+            queries.updateGarment(
+                clean.name, clean.category.name, clean.color, clean.brand, clean.material, newPhotoId, extractedImageId, cutoutImageId, now, id,
+            )
             requireGarment(id)
         }
         replacedPhotoId?.let { deleteQuietly(it) }
-        staleExtractionId?.let { deleteExtractionQuietly(it) }
+        staleExtractionId?.let { deleteGeneratedQuietly(it) }
+        staleCutoutId?.let { deleteGeneratedQuietly(it) }
         updated
     }
 
@@ -120,11 +127,12 @@ class SqlDelightGarmentRepository(
             queries.setExtractedImage(imageId, now, id)
             requireGarment(id)
         }
-        previousId?.takeIf { it != imageId }?.let { deleteExtractionQuietly(it) }
+        previousId?.takeIf { it != imageId }?.let { deleteGeneratedQuietly(it) }
         updated
     }
 
-    private suspend fun deleteExtractionQuietly(imageId: String) {
+    /** Extractions and cutouts are both generated-image files; each id belongs to one garment only. */
+    private suspend fun deleteGeneratedQuietly(imageId: String) {
         try {
             generatedImages.delete(imageId)
         } catch (e: CancellationException) {
@@ -166,7 +174,7 @@ class SqlDelightGarmentRepository(
 
     private fun User_garment.toDomain(): UserGarment? {
         val knownCategory = GarmentCategory.entries.find { it.name == category } ?: return null
-        return UserGarment(Garment(id, knownCategory), name, color, brand, material, archived_at != null, photo_id, extracted_image_id)
+        return UserGarment(Garment(id, knownCategory), name, color, brand, material, archived_at != null, photo_id, extracted_image_id, cutout_image_id)
     }
 }
 

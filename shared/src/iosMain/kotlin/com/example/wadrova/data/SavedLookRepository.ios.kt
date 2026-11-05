@@ -7,17 +7,19 @@ fun createLocalRepositories(): LocalRepositories {
     val photos = IosGarmentPhotoStore()
     val credentials = IosCredentialStore()
     val generatedImages = IosGeneratedImageStore()
+    val generatedImageGuard = GeneratedImageGuard()
     return LocalRepositories(
         SqlDelightSavedLookRepository(driver),
         SqlDelightGarmentRepository(driver, photos, generatedImages),
         photos,
         generatedImages,
-        SqlDelightMirrorRepository(driver, generatedImages, credentials, DEFAULT_MIRROR_BACKEND_URL),
+        SqlDelightMirrorRepository(driver, generatedImages, credentials, DEFAULT_MIRROR_BACKEND_URL, guard = generatedImageGuard),
         KtorMirrorBackend(createMirrorHttpClient()),
         SqlDelightBrandIntroStore(driver),
         credentials,
         SqlDelightGarmentImportRepository(driver),
         KtorWadrovaApi(createWadrovaHttpClient()),
         IosBackgroundGrace,
+        generatedImageGuard,
     )
 }

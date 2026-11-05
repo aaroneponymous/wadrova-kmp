@@ -1,6 +1,6 @@
 # Development state
 
-Last updated 2026-11-03. Describes only what the code, tests and recorded checks support. Update it at the end of each milestone.
+Last updated 2026-11-05. Describes only what the code, tests and recorded checks support. Update it at the end of each milestone.
 
 ## Branches
 
@@ -13,7 +13,8 @@ The remote is `origin` (private GitHub `wadrova-kmp`). `fe5a92a` and `fb0f152` o
 | `feature/brand-identity-integration` | Phase 1 `fe5a92a`, then the Phase 2 splash and sample-wardrobe removal commit | Brand Identity Phase 1 and Phase 2 splash, and the sample wardrobe removed; all pending physical-iPhone checks. Not merged. |
 | `foundation`, `feature/wardrobe-outfit-builder`, `feature/openai-mirror-mvp` | older | Earlier milestones, superseded by the branches above. |
 | `feature/m4.4-garment-import` | `20c3b70` | M4.4 Add a piece › Extract from photo and durable garment imports (below). Committed, not pushed. |
-| `feature/m4.5-garment-review` | from `20c3b70` | M4.5 review, save to wardrobe, finalize and corrections (below). Committed, not pushed; see `docs/HANDOFF_M4_5_TO_NEXT_AGENT.md`. |
+| `feature/m4.5-garment-review` | `73a8488` | M4.5 review, save to wardrobe, finalize and corrections (below), then the Wadrova Studio design and S0 findings (`docs/WADROVA_STUDIO_DESIGN.md`, docs only). Pushed up to `2a46af2`; `73a8488` is local. See `docs/HANDOFF_M4_5_TO_NEXT_AGENT.md`. |
+| `feature/m4.5a-transparent-cutouts` | from `73a8488` | M4.5A transparent garment cutouts (below). Committed locally, not pushed or merged. |
 
 ### Brand Identity Phase 1 commit (on `feature/brand-identity-integration`)
 
@@ -42,6 +43,25 @@ The app no longer ships sample garments. They were 15 illustrated pieces defined
   - **Emulator, upgrade from the Phase 1 build:** a look mixing a photographed user piece with two samples kept its user piece and photo. It showed two unavailable pieces and saved once they were removed, and the change survived a restart.
   - **Emulator, fresh install:** empty Your Items, Your Outfits and picker; first piece added with a photo from the picker route; first look saved; both persisted across a restart. With every piece archived, the archived list is still reachable.
   - **iOS:** builds and tests only; no Simulator interaction.
+
+## M4.5A: Transparent garment cutouts (implemented, awaiting review)
+
+Imported garments used to keep only their cutout flattened onto white (a JPEG), which showed as a white box on the Studio, selected and Sand surfaces. Each newly saved imported piece now also keeps the real cutout as a transparent PNG. Scope ends there: no backfill of existing garments, no Studio Clean, no AI imagery, no edge changes and no backend change.
+
+- **Schema:** migration `7.sqm` (database version 8) adds the nullable `user_garment.cutout_image_id`, a `GeneratedImageStore` id. Existing garments migrate with it null. Manual garments never get one (`insertGarment` writes NULL; imported pieces use `insertImportedGarment`).
+- **Sanitized PNG:** `data/CutoutPng.kt` `sanitizedCutoutPng` decodes the verified server PNG itself, over platform zlib (`Zlib.android.kt`, `Zlib.ios.kt`). It accepts only 8-bit RGBA, non-interlaced, with no color profile, at most 4096×4096 px and matching the candidate's recorded size. It sets RGB to 0 wherever alpha is 0 and writes a minimal lossless PNG (IHDR, IDAT, IEND). Visible pixels and all alpha values are kept bit for bit. Nothing is premultiplied or color-managed, so both platforms produce the same bytes. The server's PNG keeps photo color under its transparent pixels; that color is never stored.
+- **Saving:** `GarmentReviewViewModel.save` is unchanged up to the transaction: cutouts are downloaded and verified, and each is stored as the flattened `photo_id` JPEG as before. Then, under `GeneratedImageGuard`, each cutout is sanitized and saved, and `saveReviewedPieces` links `cutout_image_id` in the same transaction as the garment, provenance and decisions.
+  - A cutout that can't be kept (unexpected format, wrong size, storage failure) leaves the piece with its photo only.
+  - The finalize manifest, decisions, garment ids and provenance are unchanged.
+  - Cutouts from a failed attempt are deleted, and a repeated save keeps the first cutout and deletes the new one.
+- **Display:** `GarmentVisual` (cards, selected cards, Garment Details, Outfit Builder, moodboard, Mirror's garment picker) and the edit-form preview show, in order: Mirror extraction, cutout, photo, illustration. Each falls back to the next when its file is missing. Cutouts load through `PhotoBitmapLoader.loadCutout` with the thumbnail-sized cache (24). No layout, scaling or background changed.
+- **Lifecycle:** replacing or removing the photo clears the cutout and deletes its file (same rule as the extraction). Details-only edits and Mirror's extraction leave it alone.
+- **Cleanup:** `MirrorRepository.removeUnreferencedImages` (run at every launch) counts `cutout_image_id` as a reference. It runs under the same `GeneratedImageGuard` as the save, so a cutout written but not yet linked can't be swept. One guard instance is wired in `createLocalRepositories` and shared through `LocalRepositories.generatedImageGuard`.
+- **Verified (2026-11-05):**
+  - **Tests:** 399 host (`testAndroidHostTest`) and 413 iOS simulator (`iosSimulatorArm64Test`, default simulator iPhone 17 / iOS 27.0) pass, plus the same 413-test binary on a temporary iPhone 16 / iOS 18.5 simulator (deployment target 18.2; the simulator was deleted afterwards). 416 connected-device tests pass on `Pixel_9_Pro_Fold` (API 36) and on `Pixel_9_Pro` (API 37).
+  - **Builds:** `assembleDebug`, `compileKotlinIosArm64` and `xcodebuild` (iPhone 17 simulator) pass.
+  - **Pixel checks:** the codec decodes a Pillow-written cutout (the backend's encoder and settings) exactly. Android `BitmapFactory` (unpremultiplied) reads every stored pixel exactly. The display decoder (`decodeToImageBitmap`, Android and iOS/Skia) keeps alpha exactly and opaque colors exactly, with half-transparent colors within 2 levels from premultiplied decoding.
+  - **Not verified:** no emulator or iPhone visual check, because that needs a real server import, which wasn't authorized. No older Android image is installed (API 24–35). Grid scrolling and memory with many cutouts were not measured. Real SAM 3 cutout quality isn't claimed: tests use synthetic and Pillow fixtures.
 
 ## M4.5: Review pieces, save to wardrobe, finalize, corrections (implemented, awaiting review)
 

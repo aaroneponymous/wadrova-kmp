@@ -41,6 +41,8 @@ data class LocalRepositories(
     val garmentImports: GarmentImportRepository,
     val wadrovaApi: WadrovaApi,
     val backgroundGrace: BackgroundGrace,
+    /** Shared by the generated-image sweep and saves that write generated files. */
+    val generatedImageGuard: GeneratedImageGuard,
 )
 
 @OptIn(ExperimentalUuidApi::class)

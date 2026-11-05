@@ -50,7 +50,8 @@ interface GarmentImportRepository {
     /**
      * In one transaction: the accepted garments, their provenance, the finalize manifest and the import's move to
      * [ImportState.FINALIZE_PENDING]. The garment photos must already be stored. A garment whose id already exists is
-     * left as it is, so a repeated save is harmless. Returns the photo ids that weren't used, for the caller to delete.
+     * left as it is, so a repeated save is harmless. Returns the photo ids that weren't used, for the caller to delete;
+     * a piece whose photo wasn't used didn't use its cutout either.
      * Throws [InvalidGarmentException] for invalid details, writing nothing.
      */
     suspend fun saveReviewedPieces(importId: String, pieces: List<ReviewedPiece>, manifest: FinalizeManifest): List<String>
@@ -75,7 +76,10 @@ interface GarmentImportRepository {
     suspend fun markFinalizeSent(importId: String)
 }
 
-/** One accepted lineage, ready to become a garment. [photoId] is the already stored, verified cutout. */
+/**
+ * One accepted lineage, ready to become a garment. [photoId] is the already stored, verified cutout flattened onto
+ * white; [cutoutImageId], when there is one, is the same cutout kept transparent in the generated-image store.
+ */
 data class ReviewedPiece(
     val garmentId: String,
     val details: GarmentDetails,
@@ -83,6 +87,7 @@ data class ReviewedPiece(
     val lineageId: String,
     val candidateId: String,
     val revision: Int,
+    val cutoutImageId: String? = null,
 )
 
 @OptIn(ExperimentalUuidApi::class)
@@ -194,7 +199,9 @@ class SqlDelightGarmentImportRepository(
                         unused += piece.photoId
                     } else {
                         val d = piece.details
-                        database.garmentQueries.insertGarment(piece.garmentId, d.name, d.category.name, d.color, d.brand, d.material, now, now, piece.photoId)
+                        database.garmentQueries.insertImportedGarment(
+                            piece.garmentId, d.name, d.category.name, d.color, d.brand, d.material, now, now, piece.photoId, piece.cutoutImageId,
+                        )
                         reviews.insertSource(piece.garmentId, importId, serverImportId, piece.lineageId, piece.candidateId, piece.revision.toLong(), piece.photoId, now)
                     }
                 }

@@ -6,11 +6,17 @@ import com.example.wadrova.data.Credential
 import com.example.wadrova.data.FakeCredentialStore
 import com.example.wadrova.data.FakeGeneratedImageStore
 import com.example.wadrova.data.FakePhotoStore
+import com.example.wadrova.data.GarmentImportRepository
+import com.example.wadrova.data.GeneratedImageGuard
+import com.example.wadrova.data.ReviewedPiece
 import com.example.wadrova.data.SqlDelightGarmentImportRepository
 import com.example.wadrova.data.SqlDelightGarmentRepository
 import com.example.wadrova.data.WadrovaApiException
+import com.example.wadrova.data.assertSanitizedCopyOf
 import com.example.wadrova.data.deleteTestDatabase
 import com.example.wadrova.data.openTestDatabase
+import com.example.wadrova.data.serverStyleCutout
+import com.example.wadrova.data.serverStylePixels
 import com.example.wadrova.domain.FinalizeManifest
 import com.example.wadrova.domain.GarmentCategory
 import com.example.wadrova.domain.ImportProblem
@@ -42,6 +48,8 @@ class GarmentReviewViewModelTest {
     private val server = FakeWadrovaServer()
     private val photos = FakePhotoStore(mutableSetOf("source-photo"))
     private val credentials = FakeCredentialStore(mutableMapOf(Credential.WADROVA_ACCESS_TOKEN to "wdr_token"))
+    private val generated = FakeGeneratedImageStore()
+    private val guard = GeneratedImageGuard()
     private lateinit var driver: SqlDriver
     private lateinit var imports: SqlDelightGarmentImportRepository
     private lateinit var garments: SqlDelightGarmentRepository
@@ -56,7 +64,7 @@ class GarmentReviewViewModelTest {
         driver = openTestDatabase(databaseName)
         var ids = 0
         imports = SqlDelightGarmentImportRepository(driver, nowMillis = { dispatcher.scheduler.currentTime }, dispatcher = dispatcher, newGarmentId = { "user-g${++ids}" })
-        garments = SqlDelightGarmentRepository(driver, photos, FakeGeneratedImageStore(), dispatcher = dispatcher)
+        garments = SqlDelightGarmentRepository(driver, photos, generated, dispatcher = dispatcher)
     }
 
     @BeforeTest
@@ -87,9 +95,12 @@ class GarmentReviewViewModelTest {
     }
 
     /** One app instance: the import model plus the review model that hands saved imports to it. */
-    private fun TestScope.app(): Pair<GarmentReviewViewModel, GarmentImportViewModel> {
+    private fun TestScope.app(reviewImports: GarmentImportRepository = imports): Pair<GarmentReviewViewModel, GarmentImportViewModel> {
         val importModel = GarmentImportViewModel(imports, server, credentials, photos, random = Random(3)).also { importModels += it }
-        val review = GarmentReviewViewModel(imports, server, credentials, photos, onSaved = importModel::piecesSaved, newKey = { "kmp-cor-${++keys}" })
+        val review = GarmentReviewViewModel(
+            reviewImports, server, credentials, photos, generated, guard,
+            onSaved = importModel::piecesSaved, newKey = { "kmp-cor-${++keys}" }, imageDispatcher = dispatcher,
+        )
         runCurrent()
         review.open("kmp-imp-1")
         runCurrent()
@@ -221,6 +232,95 @@ class GarmentReviewViewModelTest {
         runCurrent()
         assertEquals(2, garments.getAll().size)
         assertEquals(ImportState.COMPLETED, imports.get("kmp-imp-1")!!.state)
+    }
+
+    // Transparent cutouts
+
+    @Test
+    fun aSavedPieceKeepsItsCutoutTransparentWithNoHiddenColorBesideItsPhoto() = test {
+        val cutout = serverStyleCutout()
+        server.assets[jacket.cutout.id] = cutout
+        val (review, _) = app()
+        review.toggle("cnd_j1")
+        review.describe("cnd_j1")
+        review.save()
+        runCurrent()
+
+        val garment = garments.getAll().single()
+        val cutoutId = assertNotNull(garment.cutoutImageId)
+        assertEquals(setOf(cutoutId), generated.stored.keys)
+        assertSanitizedCopyOf(serverStylePixels(), generated.stored.getValue(cutoutId))
+        // The flattened photo is still made from the verified server bytes, exactly as before.
+        assertEquals(cutout.toList(), photos.importedBytes.getValue(garment.photoId!!).toList())
+        assertEquals(FinalizeManifest(listOf("cnd_j1" to garment.garment.id), listOf("cnd_p1")), server.finalizedManifest("imp_1"))
+        assertEquals(ImportState.COMPLETED, imports.get("kmp-imp-1")!!.state)
+    }
+
+    @Test
+    fun aCutoutThatCantBeKeptLeavesThePieceWithItsPhotoAndTheSameDecisions() = test {
+        // The fake server's default bytes aren't a PNG at all; a wrongly sized one is refused too.
+        server.assets[pants.cutout.id] = serverStyleCutout(width = 99)
+        val (review, _) = app()
+        review.toggle("cnd_j1")
+        review.toggle("cnd_p1")
+        review.describe("cnd_j1")
+        review.describe("cnd_p1", category = GarmentCategory.BOTTOM)
+        review.save()
+        runCurrent()
+
+        val saved = garments.getAll()
+        assertEquals(2, saved.size)
+        assertTrue(saved.all { it.cutoutImageId == null && it.photoId != null })
+        assertTrue(generated.stored.isEmpty())
+        assertEquals(setOf("cnd_j1", "cnd_p1"), server.finalizedManifest("imp_1")!!.accepted.map { it.first }.toSet())
+        assertEquals(ImportState.COMPLETED, imports.get("kmp-imp-1")!!.state)
+    }
+
+    @Test
+    fun aFailedSaveRemovesTheCutoutsItWroteAndARetryLinksExactlyOne() = test {
+        server.assets[jacket.cutout.id] = serverStyleCutout()
+        server.assets[pants.cutout.id] = serverStyleCutout()
+        // The transaction fails once, after both cutouts were written (as a full disk would).
+        val failing = FailingSaveOnce(imports)
+        val (review, _) = app(failing)
+        review.toggle("cnd_j1")
+        review.toggle("cnd_p1")
+        review.describe("cnd_j1")
+        review.describe("cnd_p1", category = GarmentCategory.BOTTOM)
+        review.save()
+        runCurrent()
+        assertNotNull(review.state.saveError)
+        assertTrue(failing.failed)
+        assertTrue(garments.getAll().isEmpty())
+        assertTrue(generated.stored.isEmpty())
+        assertEquals(2, generated.deleted.size)
+
+        review.save()
+        runCurrent()
+        val saved = garments.getAll()
+        assertEquals(2, saved.size)
+        assertEquals(saved.mapNotNull { it.cutoutImageId }.toSet(), generated.stored.keys)
+        assertEquals(2, generated.stored.size)
+    }
+
+    @Test
+    fun savingAnAlreadySavedImportAgainKeepsTheFirstCutoutAndDropsTheNewOne() = test {
+        server.assets[jacket.cutout.id] = serverStyleCutout()
+        val (review, _) = app()
+        review.toggle("cnd_j1")
+        review.describe("cnd_j1")
+        review.save()
+        runCurrent()
+        val first = garments.getAll().single().cutoutImageId
+
+        // A second review of the same import (say, a stale screen after a crash) saves again.
+        val (again, _) = app()
+        again.toggle("cnd_j1")
+        again.describe("cnd_j1")
+        again.save()
+        runCurrent()
+        assertEquals(first, garments.getAll().single().cutoutImageId)
+        assertEquals(setOf(first), generated.stored.keys)
     }
 
     @Test
@@ -438,5 +538,17 @@ class GarmentReviewViewModelTest {
         runCurrent()
         assertTrue(server.correctionRequests.isEmpty())
         assertNotNull(review.state.saveError)
+    }
+
+    private class FailingSaveOnce(private val inner: GarmentImportRepository) : GarmentImportRepository by inner {
+        var failed = false
+
+        override suspend fun saveReviewedPieces(importId: String, pieces: List<ReviewedPiece>, manifest: FinalizeManifest): List<String> {
+            if (!failed) {
+                failed = true
+                throw IllegalStateException("disk full")
+            }
+            return inner.saveReviewedPieces(importId, pieces, manifest)
+        }
     }
 }
