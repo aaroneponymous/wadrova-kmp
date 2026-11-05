@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.wadrova.data.CorrectionRequest
 import com.example.wadrova.data.CredentialStore
+import com.example.wadrova.data.CutoutFormatException
+import com.example.wadrova.data.CutoutProblem
 import com.example.wadrova.data.GarmentDetails
 import com.example.wadrova.data.GarmentImportRepository
 import com.example.wadrova.data.GarmentPhotoStore
@@ -17,6 +19,7 @@ import com.example.wadrova.data.ReviewedPiece
 import com.example.wadrova.data.WadrovaApi
 import com.example.wadrova.data.WadrovaApiException
 import com.example.wadrova.data.WadrovaConnection
+import com.example.wadrova.data.diagnostic
 import com.example.wadrova.data.sanitizedCutoutPng
 import com.example.wadrova.domain.Candidate
 import com.example.wadrova.domain.CandidateAsset
@@ -34,6 +37,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,6 +69,8 @@ data class ReviewUiState(
     val confirmingFinishEmpty: Boolean = false,
     /** Set once the pieces are saved locally; the screen then offers to go to the wardrobe. */
     val savedCount: Int? = null,
+    /** How many transparent cutouts the last save kept and why any were skipped (diagnostics; not shown). */
+    val cutoutReport: CutoutReport? = null,
 ) {
     /** The garments to review: lineages whose current revision is a detection. */
     val pieces: List<Lineage> get() = lineages.filter { it.mustBeDecided }
@@ -96,6 +104,15 @@ data class ReviewUiState(
             .sortedByDescending { it.box.overlap(box) }
             .take(6)
     }
+}
+
+/** The outcome of keeping transparent cutouts during one save. Holds counts and broad reasons only. */
+data class CutoutReport(val attempted: Int, val saved: Int, val skipped: Map<CutoutProblem, Int>) {
+    val skippedCount: Int get() = skipped.values.sum()
+
+    override fun toString(): String =
+        "cutouts attempted=$attempted saved=$saved skipped=$skippedCount" +
+            skipped.entries.sortedBy { it.key }.joinToString("") { " ${it.key}=${it.value}" }
 }
 
 internal fun suggestedName(phrase: String): String =
@@ -383,8 +400,15 @@ class GarmentReviewViewModel(
      * blocks a second tap.
      *
      * Each piece also keeps its cutout as a transparent PNG when it can ([keepCutout]). That's an addition: a cutout
-     * that can't be kept leaves the piece with its photo, and never changes what's saved or sent to the server. The
-     * cutouts are written and linked under [imageGuard], so the generated-image sweep can't remove them in between.
+     * that can't be kept leaves the piece with its photo, and never changes what's saved or sent to the server. How
+     * many were kept, and why any weren't, is recorded in [ReviewUiState.cutoutReport] and logged as a diagnostic.
+     * The cutouts are written and linked under [imageGuard], so the generated-image sweep can't remove them in between.
+     *
+     * File ownership: a stored photo or cutout belongs to this attempt until the transaction commits, then to its
+     * garment. The commit and that hand-over run without cancellation, so a cancel can't land between them. Cleanup
+     * also never trusts the bookkeeping alone: it deletes only files no garment refers to ([discardUnlinked]); any
+     * leftover is removed by the launch sweeps. This narrows the window but isn't atomic across a process kill, after
+     * which the sweeps do the cleanup.
      */
     fun save() {
         val importId = state.importId ?: return
@@ -416,9 +440,11 @@ class GarmentReviewViewModel(
                     val photoId = photos.importBytes(bytes).also { staged += it }
                     DownloadedPiece(lineage, candidate, photoId, bytes)
                 }
+                val attempts = mutableListOf<CutoutAttempt>()
                 val (pieces, unused) = imageGuard.exclusive {
                     val pieces = downloaded.map { piece ->
                         val lineage = piece.lineage
+                        val cutout = keepCutout(piece.bytes, piece.candidate.cutout).also { attempts += it }
                         ReviewedPiece(
                             garmentId = current.choice(lineage).garmentId,
                             details = GarmentDetails(current.name(lineage), current.category(lineage)!!, current.color(lineage)!!),
@@ -426,18 +452,31 @@ class GarmentReviewViewModel(
                             lineageId = lineage.id,
                             candidateId = piece.candidate.id,
                             revision = piece.candidate.revision,
-                            cutoutImageId = keepCutout(piece.bytes, piece.candidate.cutout)?.also { stagedCutouts += it },
+                            cutoutImageId = (cutout as? CutoutAttempt.Kept)?.imageId?.also { stagedCutouts += it },
                         )
                     }
-                    val unused = imports.saveReviewedPieces(importId, pieces, manifest)
-                    staged.clear()
-                    stagedCutouts.clear()
+                    // A cancel that arrived during the cutout work stops here, before anything is committed. From the
+                    // commit on: only the local transaction and the hand-over, with no network or image work.
+                    currentCoroutineContext().ensureActive()
+                    val unused = withContext(NonCancellable) {
+                        imports.saveReviewedPieces(importId, pieces, manifest).also {
+                            staged.clear()
+                            stagedCutouts.clear()
+                        }
+                    }
                     pieces to unused
                 }
-                unused.forEach { quietly { photos.delete(it) } }
-                // A piece that was already saved keeps what it has; the cutout made for it now isn't needed.
-                pieces.filter { it.photoId in unused }.mapNotNull { it.cutoutImageId }.forEach { quietly { generated.delete(it) } }
-                state = state.copy(saving = false, saveProgress = null, savedCount = pieces.size - unused.size, detailLineageId = null)
+                val report = CutoutReport(
+                    attempted = attempts.size,
+                    saved = attempts.count { it is CutoutAttempt.Kept },
+                    skipped = attempts.filterIsInstance<CutoutAttempt.Skipped>().groupingBy { it.problem }.eachCount(),
+                )
+                diagnostic("Import review save: $report")
+                // A piece that was already saved keeps what it has; the photo and cutout made for it now aren't needed.
+                discardUnlinked(unused, pieces.filter { it.photoId in unused }.mapNotNull { it.cutoutImageId })
+                state = state.copy(
+                    saving = false, saveProgress = null, savedCount = pieces.size - unused.size, detailLineageId = null, cutoutReport = report,
+                )
                 onSaved(importId)
             } catch (e: CancellationException) {
                 throw e
@@ -451,19 +490,50 @@ class GarmentReviewViewModel(
                 } ?: SAVE_FAILED
                 state = state.copy(saving = false, saveProgress = null, saveError = "$message Nothing was saved, so you can try again.")
             } finally {
-                staged.forEach { quietly { photos.delete(it) } }
-                stagedCutouts.forEach { quietly { generated.delete(it) } }
+                // Also after a cancel: deleting this attempt's own unlinked files is short local work.
+                withContext(NonCancellable) { discardUnlinked(staged.toList(), stagedCutouts.toList()) }
             }
         }
     }
 
     /**
-     * The verified cutout kept as a transparent PNG with no color under its transparent pixels, or null if it can't be
-     * kept (an unexpected format, or storage failing). The piece then simply shows its photo.
+     * Deletes the given photos and cutouts unless a garment refers to them, which protects files whose transaction
+     * committed even if the bookkeeping missed it. If the check can't run, nothing is deleted; the launch sweeps remove
+     * whatever is really unreferenced.
      */
-    private suspend fun keepCutout(bytes: ByteArray, asset: CandidateAsset): String? = quietly {
-        val png = withContext(imageDispatcher) { sanitizedCutoutPng(bytes, asset.width, asset.height) }
-        generated.save(png)
+    private suspend fun discardUnlinked(photoIds: List<String>, cutoutIds: List<String>) {
+        if (photoIds.isEmpty() && cutoutIds.isEmpty()) return
+        val linked = quietly { imports.linkedImageIds(photoIds + cutoutIds) } ?: return
+        photoIds.filterNot { it in linked }.forEach { quietly { photos.delete(it) } }
+        cutoutIds.filterNot { it in linked }.forEach { quietly { generated.delete(it) } }
+    }
+
+    private sealed interface CutoutAttempt {
+        class Kept(val imageId: String) : CutoutAttempt
+        class Skipped(val problem: CutoutProblem) : CutoutAttempt
+    }
+
+    /**
+     * The verified cutout kept as a transparent PNG with no color under its transparent pixels, or the broad reason it
+     * couldn't be (an unsupported or invalid PNG, a size mismatch, or storage failing). The piece then shows its photo.
+     */
+    private suspend fun keepCutout(bytes: ByteArray, asset: CandidateAsset): CutoutAttempt {
+        val png = try {
+            withContext(imageDispatcher) { sanitizedCutoutPng(bytes, asset.width, asset.height) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: CutoutFormatException) {
+            return CutoutAttempt.Skipped(e.problem)
+        } catch (_: Exception) {
+            return CutoutAttempt.Skipped(CutoutProblem.CODEC_ERROR)
+        }
+        return try {
+            CutoutAttempt.Kept(generated.save(png))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            CutoutAttempt.Skipped(CutoutProblem.STORAGE_ERROR)
+        }
     }
 
     private suspend fun connection(): WadrovaConnection? = quietly { loadConnection(imports, credentials) }

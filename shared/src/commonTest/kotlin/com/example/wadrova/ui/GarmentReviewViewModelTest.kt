@@ -6,7 +6,10 @@ import com.example.wadrova.data.Credential
 import com.example.wadrova.data.FakeCredentialStore
 import com.example.wadrova.data.FakeGeneratedImageStore
 import com.example.wadrova.data.FakePhotoStore
+import com.example.wadrova.data.CutoutProblem
 import com.example.wadrova.data.GarmentImportRepository
+import com.example.wadrova.data.GarmentPhotoStore
+import com.example.wadrova.data.GeneratedImageStore
 import com.example.wadrova.data.GeneratedImageGuard
 import com.example.wadrova.data.ReviewedPiece
 import com.example.wadrova.data.SqlDelightGarmentImportRepository
@@ -32,6 +35,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -95,10 +100,14 @@ class GarmentReviewViewModelTest {
     }
 
     /** One app instance: the import model plus the review model that hands saved imports to it. */
-    private fun TestScope.app(reviewImports: GarmentImportRepository = imports): Pair<GarmentReviewViewModel, GarmentImportViewModel> {
+    private fun TestScope.app(
+        reviewImports: GarmentImportRepository = imports,
+        reviewPhotos: GarmentPhotoStore = photos,
+        reviewGenerated: GeneratedImageStore = generated,
+    ): Pair<GarmentReviewViewModel, GarmentImportViewModel> {
         val importModel = GarmentImportViewModel(imports, server, credentials, photos, random = Random(3)).also { importModels += it }
         val review = GarmentReviewViewModel(
-            reviewImports, server, credentials, photos, generated, guard,
+            reviewImports, server, credentials, reviewPhotos, reviewGenerated, guard,
             onSaved = importModel::piecesSaved, newKey = { "kmp-cor-${++keys}" }, imageDispatcher = dispatcher,
         )
         runCurrent()
@@ -321,6 +330,154 @@ class GarmentReviewViewModelTest {
         runCurrent()
         assertEquals(first, garments.getAll().single().cutoutImageId)
         assertEquals(setOf(first), generated.stored.keys)
+    }
+
+    @Test
+    fun theSaveReportsHowManyCutoutsWereKeptAndWhyOthersWerent() = test {
+        server.assets[jacket.cutout.id] = serverStyleCutout()
+        server.assets[pants.cutout.id] = serverStyleCutout(width = 99)
+        val (review, _) = app()
+        review.toggle("cnd_j1")
+        review.toggle("cnd_p1")
+        review.describe("cnd_j1")
+        review.describe("cnd_p1", category = GarmentCategory.BOTTOM)
+        review.save()
+        runCurrent()
+        val report = assertNotNull(review.state.cutoutReport)
+        assertEquals(2, report.attempted)
+        assertEquals(1, report.saved)
+        assertEquals(mapOf(CutoutProblem.INTEGRITY to 1), report.skipped)
+        assertEquals("cutouts attempted=2 saved=1 skipped=1 INTEGRITY=1", report.toString())
+    }
+
+    // Cancellation and failures around the commit. Each case checks that committed garments keep their files,
+    // uncommitted files go, nothing is duplicated and the finalize request is unchanged.
+
+    private fun TestScope.selectBoth(review: GarmentReviewViewModel) {
+        review.toggle("cnd_j1")
+        review.toggle("cnd_p1")
+        review.describe("cnd_j1")
+        review.describe("cnd_p1", category = GarmentCategory.BOTTOM)
+        runCurrent()
+    }
+
+    private suspend fun assertCommittedGarmentsKeepTheirFiles() {
+        val saved = garments.getAll()
+        assertEquals(2, saved.size)
+        assertEquals(2, saved.map { it.garment.id }.toSet().size)
+        saved.forEach { g ->
+            assertTrue(g.photoId!! in photos.stored, "photo of ${g.name}")
+            assertTrue(assertNotNull(g.cutoutImageId) in generated.stored, "cutout of ${g.name}")
+        }
+    }
+
+    private suspend fun TestScope.relaunchAndFinish() {
+        app()
+        runCurrent()
+        assertEquals(ImportState.COMPLETED, imports.get("kmp-imp-1")!!.state)
+        val manifest = imports.storedManifest("kmp-imp-1")!!
+        assertEquals(setOf("cnd_j1", "cnd_p1"), manifest.accepted.map { it.first }.toSet())
+        assertTrue(server.finalizeBodies.isNotEmpty())
+        assertTrue(server.finalizeBodies.all { it == manifest })
+    }
+
+    @Test
+    fun aCancelBeforeTheCommitSavesNothingAndRemovesEveryFileItWrote() = test {
+        server.assets[jacket.cutout.id] = serverStyleCutout()
+        server.assets[pants.cutout.id] = serverStyleCutout()
+        lateinit var review: GarmentReviewViewModel
+        // The app closes while the second cutout is being stored.
+        val closing = HookedGeneratedStore(generated) { if (generated.stored.size == 1) review.viewModelScope.cancel() }
+        review = app(reviewGenerated = closing).first
+        selectBoth(review)
+        review.save()
+        runCurrent()
+        assertTrue(garments.getAll().isEmpty())
+        assertTrue(generated.stored.isEmpty())
+        assertTrue(photos.stored == setOf("source-photo"))
+        assertEquals(ImportState.READY, imports.get("kmp-imp-1")!!.state)
+
+        // A relaunched review (selections are restored) saves once, with no duplicates.
+        val (again, _) = app()
+        again.save()
+        runCurrent()
+        assertCommittedGarmentsKeepTheirFiles()
+        assertEquals(ImportState.COMPLETED, imports.get("kmp-imp-1")!!.state)
+    }
+
+    @Test
+    fun aCancelDuringTheCommitLetsItFinishAndKeepsEveryLinkedFile() = test {
+        server.assets[jacket.cutout.id] = serverStyleCutout()
+        server.assets[pants.cutout.id] = serverStyleCutout()
+        lateinit var review: GarmentReviewViewModel
+        val repo = HookedSave(imports, before = { review.viewModelScope.cancel() })
+        review = app(reviewImports = repo).first
+        selectBoth(review)
+        review.save()
+        runCurrent()
+        assertTrue(repo.committed)
+        assertCommittedGarmentsKeepTheirFiles()
+        // The saved import isn't left behind: the import driver finishes it even though the review was cancelled.
+        assertTrue(imports.get("kmp-imp-1")!!.state in setOf(ImportState.FINALIZE_PENDING, ImportState.COMPLETED))
+        assertEquals(emptyList(), photos.deleted.filter { it != "source-photo" })
+        relaunchAndFinish()
+        assertCommittedGarmentsKeepTheirFiles()
+    }
+
+    @Test
+    fun aCancelRightAfterTheCommitKeepsEveryLinkedFile() = test {
+        server.assets[jacket.cutout.id] = serverStyleCutout()
+        server.assets[pants.cutout.id] = serverStyleCutout()
+        lateinit var review: GarmentReviewViewModel
+        val repo = HookedSave(imports, after = { review.viewModelScope.cancel() })
+        review = app(reviewImports = repo).first
+        selectBoth(review)
+        review.save()
+        runCurrent()
+        assertCommittedGarmentsKeepTheirFiles()
+        assertEquals(emptyList(), generated.deleted)
+        relaunchAndFinish()
+    }
+
+    @Test
+    fun anErrorAfterTheCommitBeforeTheBookkeepingStillKeepsLinkedFiles() = test {
+        // Not relying on the protected section alone: the commit lands, then the call fails before the attempt
+        // hands its files over. Cleanup must see that garments use them.
+        server.assets[jacket.cutout.id] = serverStyleCutout()
+        server.assets[pants.cutout.id] = serverStyleCutout()
+        val repo = HookedSave(imports, after = { throw IllegalStateException("lost after commit") })
+        val (review, _) = app(reviewImports = repo)
+        selectBoth(review)
+        review.save()
+        runCurrent()
+        assertNotNull(review.state.saveError)
+        assertCommittedGarmentsKeepTheirFiles()
+        assertEquals(emptyList(), generated.deleted)
+        assertEquals(emptyList(), photos.deleted.filter { it != "source-photo" })
+        relaunchAndFinish()
+    }
+
+    @Test
+    fun aCancelDuringCleanupOfAFailedSaveStillRemovesTheUncommittedFiles() = test {
+        server.assets[jacket.cutout.id] = serverStyleCutout()
+        server.assets[pants.cutout.id] = serverStyleCutout()
+        lateinit var review: GarmentReviewViewModel
+        val failing = FailingSaveOnce(imports)
+        // The app closes as cleanup deletes its first file.
+        val closingPhotos = HookedPhotoStore(photos) { review.viewModelScope.cancel() }
+        review = app(reviewImports = failing, reviewPhotos = closingPhotos).first
+        selectBoth(review)
+        review.save()
+        runCurrent()
+        assertTrue(failing.failed)
+        assertTrue(garments.getAll().isEmpty())
+        assertEquals(setOf("source-photo"), photos.stored)
+        assertTrue(generated.stored.isEmpty())
+
+        val (again, _) = app()
+        again.save()
+        runCurrent()
+        assertCommittedGarmentsKeepTheirFiles()
     }
 
     @Test
@@ -549,6 +706,37 @@ class GarmentReviewViewModelTest {
                 throw IllegalStateException("disk full")
             }
             return inner.saveReviewedPieces(importId, pieces, manifest)
+        }
+    }
+
+    /** Commits through [inner], running [before] and [after] around it (test seam for interleavings). */
+    private class HookedSave(
+        private val inner: GarmentImportRepository,
+        private val before: () -> Unit = {},
+        private val after: () -> Unit = {},
+    ) : GarmentImportRepository by inner {
+        var committed = false
+
+        override suspend fun saveReviewedPieces(importId: String, pieces: List<ReviewedPiece>, manifest: FinalizeManifest): List<String> {
+            before()
+            return inner.saveReviewedPieces(importId, pieces, manifest).also {
+                committed = true
+                after()
+            }
+        }
+    }
+
+    private class HookedGeneratedStore(private val inner: GeneratedImageStore, private val onSave: () -> Unit) : GeneratedImageStore by inner {
+        override suspend fun save(bytes: ByteArray): String {
+            onSave()
+            return inner.save(bytes)
+        }
+    }
+
+    private class HookedPhotoStore(private val inner: GarmentPhotoStore, private val onDelete: () -> Unit) : GarmentPhotoStore by inner {
+        override suspend fun delete(id: String) {
+            onDelete()
+            inner.delete(id)
         }
     }
 }

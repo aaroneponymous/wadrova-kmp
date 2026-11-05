@@ -14,7 +14,7 @@ The remote is `origin` (private GitHub `wadrova-kmp`). `fe5a92a` and `fb0f152` o
 | `foundation`, `feature/wardrobe-outfit-builder`, `feature/openai-mirror-mvp` | older | Earlier milestones, superseded by the branches above. |
 | `feature/m4.4-garment-import` | `20c3b70` | M4.4 Add a piece › Extract from photo and durable garment imports (below). Committed, not pushed. |
 | `feature/m4.5-garment-review` | `73a8488` | M4.5 review, save to wardrobe, finalize and corrections (below), then the Wadrova Studio design and S0 findings (`docs/WADROVA_STUDIO_DESIGN.md`, docs only). Pushed up to `2a46af2`; `73a8488` is local. See `docs/HANDOFF_M4_5_TO_NEXT_AGENT.md`. |
-| `feature/m4.5a-transparent-cutouts` | from `73a8488` | M4.5A transparent garment cutouts (below). Committed locally, not pushed or merged. |
+| `feature/m4.5a-transparent-cutouts` | from `73a8488` | M4.5A transparent garment cutouts (`16ea135`) and its repair (ICC cutouts, protected saves), below. Committed locally, not pushed or merged. |
 
 ### Brand Identity Phase 1 commit (on `feature/brand-identity-integration`)
 
@@ -49,7 +49,7 @@ The app no longer ships sample garments. They were 15 illustrated pieces defined
 Imported garments used to keep only their cutout flattened onto white (a JPEG), which showed as a white box on the Studio, selected and Sand surfaces. Each newly saved imported piece now also keeps the real cutout as a transparent PNG. Scope ends there: no backfill of existing garments, no Studio Clean, no AI imagery, no edge changes and no backend change.
 
 - **Schema:** migration `7.sqm` (database version 8) adds the nullable `user_garment.cutout_image_id`, a `GeneratedImageStore` id. Existing garments migrate with it null. Manual garments never get one (`insertGarment` writes NULL; imported pieces use `insertImportedGarment`).
-- **Sanitized PNG:** `data/CutoutPng.kt` `sanitizedCutoutPng` decodes the verified server PNG itself, over platform zlib (`Zlib.android.kt`, `Zlib.ios.kt`). It accepts only 8-bit RGBA, non-interlaced, with no color profile, at most 4096×4096 px and matching the candidate's recorded size. It sets RGB to 0 wherever alpha is 0 and writes a minimal lossless PNG (IHDR, IDAT, IEND). Visible pixels and all alpha values are kept bit for bit. Nothing is premultiplied or color-managed, so both platforms produce the same bytes. The server's PNG keeps photo color under its transparent pixels; that color is never stored.
+- **Sanitized PNG:** `data/CutoutPng.kt` `sanitizedCutoutPng` decodes the verified server PNG itself, over platform zlib (`Zlib.android.kt`, `Zlib.ios.kt`). It accepts only 8-bit RGBA, non-interlaced, at most 4096×4096 px and matching the candidate's recorded size; color declarations are handled as described under *Repair* below. It sets RGB to 0 wherever alpha is 0 and writes a minimal lossless PNG (IHDR, IDAT, IEND). Visible pixels and all alpha values are kept bit for bit. Nothing is premultiplied or color-managed, so both platforms produce the same bytes. The server's PNG keeps photo color under its transparent pixels; that color is never stored.
 - **Saving:** `GarmentReviewViewModel.save` is unchanged up to the transaction: cutouts are downloaded and verified, and each is stored as the flattened `photo_id` JPEG as before. Then, under `GeneratedImageGuard`, each cutout is sanitized and saved, and `saveReviewedPieces` links `cutout_image_id` in the same transaction as the garment, provenance and decisions.
   - A cutout that can't be kept (unexpected format, wrong size, storage failure) leaves the piece with its photo only.
   - The finalize manifest, decisions, garment ids and provenance are unchanged.
@@ -62,6 +62,41 @@ Imported garments used to keep only their cutout flattened onto white (a JPEG), 
   - **Builds:** `assembleDebug`, `compileKotlinIosArm64` and `xcodebuild` (iPhone 17 simulator) pass.
   - **Pixel checks:** the codec decodes a Pillow-written cutout (the backend's encoder and settings) exactly. Android `BitmapFactory` (unpremultiplied) reads every stored pixel exactly. The display decoder (`decodeToImageBitmap`, Android and iOS/Skia) keeps alpha exactly and opaque colors exactly, with half-transparent colors within 2 levels from premultiplied decoding.
   - **Not verified:** no emulator or iPhone visual check, because that needs a real server import, which wasn't authorized. No older Android image is installed (API 24–35). Grid scrolling and memory with many cutouts were not measured. Real SAM 3 cutout quality isn't claimed: tests use synthetic and Pillow fixtures.
+
+### M4.5A repair: ICC cutouts and protected saves (2026-11-05)
+
+**Why.** The first real-import check failed. Every live SAM 3 cutout carries an `iCCP` chunk: a 456-byte sRGB profile that comes with the app's Android JPEG upload and that Pillow keeps in the cutout. The codec refused color profiles, so all four saved garments silently fell back to their white JPEGs.
+
+- **Color declarations:**
+  - A valid `iCCP` profile is accepted and written back byte for byte, under a fixed name, so no source text is copied. A non-sRGB profile (such as Display P3) is kept as declared, never read as sRGB.
+  - A single `sRGB` chunk is kept.
+  - `gAMA` and `cHRM` are dropped only beside a profile or `sRGB`, where color-managed decoders ignore them. On their own they are refused.
+  - Duplicate, misplaced (after `IDAT`) or conflicting declarations (`iCCP` with `sRGB`), `cICP`, `mDCv` and `cLLi` are refused.
+- **Profile validation:**
+  - The ICC name must be 1–79 bytes and the compression method 0.
+  - Compressed size is at most 256 KiB, and inflation is bounded at 1 MiB (`zlibInflateAtMost`), so a compression bomb is refused.
+  - The ICC header is checked: the declared size, `acsp`, an RGB color space, and every tag inside the profile.
+  - Text, EXIF and other ancillary chunks are never copied.
+  - Pixels are never converted or resampled.
+- **Protected saves:** a cancel during the cutout work is honored just before the commit. The commit and the clearing of the attempt's file lists then run under `NonCancellable`. Cleanup (`discardUnlinked`, itself non-cancellable) deletes only files no garment uses (`GarmentImportRepository.linkedImageIds`), so an error after the commit can't delete linked files either. Leftovers are removed by the launch sweeps. This is not atomic across a process kill.
+- **Diagnostics:** each save records `ReviewUiState.cutoutReport` (attempted, saved, skipped by `CutoutProblem`: `UNSUPPORTED_FORMAT`, `INVALID_PNG`, `INTEGRITY`, `CODEC_ERROR`, `STORAGE_ERROR`). It also logs one line through `diagnostic` (logcat tag `Wadrova`, NSLog on iOS) containing counts only.
+- **Tests:**
+  - `CutoutIccTest` covers the real profile structure (a Pillow fixture with the live 456-byte profile), a synthetic P3 profile, no profile, sRGB, and malformed, CRC, duplicate, conflicting and oversized cases.
+  - Platform tests check that Android decodes the sRGB-ICC cutout as sRGB with exact pixels and the P3 one in its own color space with unchanged values, and that iOS ImageIO sees the profile and Skia displays exact opaque pixels.
+  - Six new `GarmentReviewViewModelTest` cases: the report, plus cancellation before, during and right after the commit, an error after the commit, and a cancel during cleanup.
+- **Verified (2026-11-05):**
+  - **Tests:** 414 host, 430 iOS simulator (iOS 27.0, and the same binary on a temporary iOS 18.5 simulator), and 433 connected-device tests on API 36 and API 37 pass.
+  - **Builds:** `assembleDebug`, `compileKotlinIosArm64` and `xcodebuild` (iPhone 17) pass.
+- **Real import retest (isolated `Pixel_9_Pro_Fold`, API 36, account `kmp-m45a-qa`, one CC0 Street Style import `imp_ec2d4717…`):**
+  - SAM 3 found 7 pieces and 4 were saved. The server finalized 4 accepted and 3 rejected.
+  - Diagnostic: `cutouts attempted=4 saved=4 skipped=0`.
+  - Each new garment has a `cutout_image_id`. Each stored PNG is `IHDR iCCP IDAT IEND` with valid CRCs, its profile identical to the server's, visible RGBA and alpha identical, and RGB 0 under every transparent pixel. About 99.9 % of the server's transparent pixels had carried photo color.
+  - No white boxes on Your Items, selected (CobaltSoft) cards, Garment Details, the edit preview or the Sand moodboard. The first import's garments keep their white JPEGs (no backfill).
+  - After a force-stop and relaunch: 30 garments, no duplicates, both imports `COMPLETED`, and all cutout files kept by the launch sweep.
+- **Not verified:**
+  - A real non-sRGB upload: iPhone imports weren't used, so P3 is covered by synthetic fixtures only.
+  - Android API 24–35, and Android API 24–25 color management in particular. The cutout codec doesn't depend on it.
+  - Physical devices and GPU-rendered scrolling performance.
 
 ## M4.5: Review pieces, save to wardrobe, finalize, corrections (implemented, awaiting review)
 

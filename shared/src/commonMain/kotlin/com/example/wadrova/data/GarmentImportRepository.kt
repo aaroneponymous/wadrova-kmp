@@ -74,6 +74,9 @@ interface GarmentImportRepository {
 
     /** Freezes the stored decisions. Written before the first finalize request leaves the device. */
     suspend fun markFinalizeSent(importId: String)
+
+    /** Which of [imageIds] a garment uses as its photo or cutout; such files must never be deleted by a save's cleanup. */
+    suspend fun linkedImageIds(imageIds: Collection<String>): Set<String>
 }
 
 /**
@@ -244,6 +247,15 @@ class SqlDelightGarmentImportRepository(
                 queries.selectImport(importId).executeAsOneOrNull()?.toDomain()?.let { write(it.completed(nowMillis())) }
                 reviews.deleteReviewChoices(importId)
             }
+        }
+    }
+
+    override suspend fun linkedImageIds(imageIds: Collection<String>): Set<String> = withContext(dispatcher) {
+        if (imageIds.isEmpty()) return@withContext emptySet()
+        val ids = imageIds.toSet()
+        val queries = database.garmentQueries
+        queries.transactionWithResult {
+            (queries.selectLinkedPhotoIds(ids).executeAsList() + queries.selectLinkedCutoutIds(ids).executeAsList()).toSet()
         }
     }
 

@@ -18,9 +18,29 @@ internal actual fun zlibInflate(data: ByteArray, expectedSize: Int): ByteArray {
         // More data than the header promises is as wrong as less.
         val extra = ByteArray(1)
         if (written != expectedSize || (!inflater.finished() && inflater.inflate(extra) > 0)) {
-            throw CutoutFormatException("The cutout's image data has the wrong size.")
+            throw CutoutFormatException(CutoutProblem.INVALID_PNG, "The cutout's image data has the wrong size.")
         }
         return out
+    } finally {
+        inflater.end()
+    }
+}
+
+internal actual fun zlibInflateAtMost(data: ByteArray, maxSize: Int): ByteArray {
+    val inflater = Inflater()
+    try {
+        inflater.setInput(data)
+        val out = ByteArrayOutputStream(minOf(maxSize, data.size * 4 + 64))
+        val buffer = ByteArray(16 * 1024)
+        while (!inflater.finished()) {
+            val n = inflater.inflate(buffer)
+            if (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) {
+                throw CutoutFormatException(CutoutProblem.INVALID_PNG, "Compressed data is truncated.")
+            }
+            if (out.size() + n > maxSize) throw CutoutFormatException(CutoutProblem.INVALID_PNG, "Compressed data expands too far.")
+            out.write(buffer, 0, n)
+        }
+        return out.toByteArray()
     } finally {
         inflater.end()
     }

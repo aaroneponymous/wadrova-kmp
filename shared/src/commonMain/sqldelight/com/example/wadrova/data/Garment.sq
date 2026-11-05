@@ -48,6 +48,13 @@ SELECT extracted_image_id FROM user_garment WHERE extracted_image_id IS NOT NULL
 selectCutoutImageIds:
 SELECT cutout_image_id FROM user_garment WHERE cutout_image_id IS NOT NULL;
 
+-- Which of the given ids garments use as photos, and as cutouts.
+selectLinkedPhotoIds:
+SELECT photo_id FROM user_garment WHERE photo_id IS NOT NULL AND photo_id IN ?;
+
+selectLinkedCutoutIds:
+SELECT cutout_image_id FROM user_garment WHERE cutout_image_id IS NOT NULL AND cutout_image_id IN ?;
+
 selectPhotoIds:
 SELECT photo_id FROM user_garment WHERE photo_id IS NOT NULL;
 

@@ -20,7 +20,16 @@ import kotlinx.coroutines.test.runTest
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import platform.CoreFoundation.CFDataRef
 import platform.CoreFoundation.CFRelease
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+import platform.CoreGraphics.CGColorSpaceCopyICCData
+import platform.CoreGraphics.CGColorSpaceCopyName
 import platform.CoreGraphics.CGImageAlphaInfo
+import platform.CoreGraphics.CGImageGetColorSpace
+import platform.CoreGraphics.kCGColorSpaceSRGB
+import platform.CoreFoundation.CFDataGetLength
+import platform.CoreFoundation.CFRetain
+import platform.Foundation.CFBridgingRelease
 import platform.CoreGraphics.CGImageGetAlphaInfo
 import platform.CoreGraphics.CGImageGetHeight
 import platform.CoreGraphics.CGImageGetWidth
@@ -109,5 +118,59 @@ class IosCutoutDisplayTest {
                 else -> for (ch in 0 until 3) assertTrue(abs(expected[ch] - actual[ch]) <= 2, "edge pixel $x,$y channel $ch")
             }
         }
+    }
+
+    /** ImageIO's color space for [png]: whether it's sRGB by name, and the length of its ICC data (0 if none). */
+    private fun imageIoColorSpace(png: ByteArray): Pair<Boolean, Long> {
+        val data = png.usePinned { NSData.create(bytes = it.addressOf(0), length = png.size.toULong()) }
+        val cfData = CFBridgingRetain(data) as CFDataRef
+        val imageSource = assertNotNull(CGImageSourceCreateWithData(cfData, null))
+        val image = assertNotNull(CGImageSourceCreateImageAtIndex(imageSource, 0u, null))
+        try {
+            val space = CGImageGetColorSpace(image)
+            val name = CGColorSpaceCopyName(space)?.let { CFBridgingRelease(it) as? String }
+            val srgbName = CFBridgingRelease(CFRetain(kCGColorSpaceSRGB)) as? String
+            val isSrgb = name != null && name == srgbName
+            val icc = CGColorSpaceCopyICCData(space)
+            val length = icc?.let { CFDataGetLength(it) } ?: 0L
+            icc?.let { CFRelease(it) }
+            return isSrgb to length
+        } finally {
+            CGImageRelease(image)
+            CFRelease(imageSource)
+            CFRelease(cfData)
+        }
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    @Test
+    fun anIccCutoutDisplaysWithAlphaAndOpaqueColorsExact() {
+        val stored = sanitizedCutoutPng(Base64.decode(IccFixtures.SRGB_ICC), 24, 16)
+        val pixels = stored.decodeToImageBitmap().toPixelMap()
+        for (y in 0 until 16) for (x in 0 until 24) {
+            val a = when {
+                (x + y) % 5 == 0 -> 0
+                (x * y) % 7 == 3 -> 128
+                else -> 255
+            }
+            val c = pixels[x, y]
+            assertEquals(a, (c.alpha * 255).roundToInt(), "alpha at $x,$y")
+            if (a == 255) {
+                assertContentEquals(
+                    intArrayOf((x * 37 + y * 11) % 256, (x * 5 + y * 53 + 17) % 256, (x * x + y * 7) % 256),
+                    intArrayOf((c.red * 255).roundToInt(), (c.green * 255).roundToInt(), (c.blue * 255).roundToInt()),
+                    "pixel $x,$y",
+                )
+            }
+        }
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    @Test
+    fun imageIoSeesTheEmbeddedProfileAndDoesNotTreatP3AsSrgb() {
+        val (srgbIsSrgb, srgbIcc) = imageIoColorSpace(sanitizedCutoutPng(Base64.decode(IccFixtures.SRGB_ICC), 24, 16))
+        assertTrue(srgbIsSrgb || srgbIcc > 0, "the sRGB profile is seen")
+        val (p3IsSrgb, p3Icc) = imageIoColorSpace(sanitizedCutoutPng(Base64.decode(IccFixtures.P3_ICC), 24, 16))
+        assertTrue(!p3IsSrgb && p3Icc > 0, "the P3 profile is kept and not read as sRGB")
     }
 }
